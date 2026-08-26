@@ -1,0 +1,529 @@
+<Window x:Class="TachFilePdf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tách File PDF"
+        Width="1220"
+        Height="760"
+        MinWidth="1040"
+        MinHeight="660"
+        WindowStartupLocation="CenterScreen"
+        Background="#EEF1F6">
+    <Window.Resources>
+        <SolidColorBrush x:Key="AccentBrush" Color="#EF2329" />
+        <SolidColorBrush x:Key="AccentDarkBrush" Color="#D71920" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#DDE2EA" />
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#64748B" />
+
+        <Style x:Key="TextInput" TargetType="TextBox">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentDarkBrush}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource AccentDarkBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+        </Style>
+
+        <Style x:Key="ModeButton" TargetType="RadioButton">
+            <Setter Property="Height" Value="52" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="ModeBorder"
+                                Background="#F3F5F9"
+                                BorderBrush="#E6EAF1"
+                                BorderThickness="1"
+                                CornerRadius="7">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ModeBorder" Property="Background" Value="White" />
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="ModeBorder" Property="BorderThickness" Value="2" />
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter Property="Foreground" Value="#7A8699" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="Padding" Value="20,0" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.22*" MinWidth="560" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="0.78*" MinWidth="410" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Background="#F8FAFC"
+                    BorderBrush="{StaticResource BorderBrushSoft}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    ClipToBounds="True">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border Background="White"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,9">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="#0F172A"
+                                       Text="Trang hiện tại:" />
+                            <Button Grid.Column="1"
+                                    Width="32"
+                                    Height="30"
+                                    Margin="10,0,0,0"
+                                    Content="‹"
+                                    ToolTip="Trang trước"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="PreviousPageButton_Click" />
+                            <TextBox Grid.Column="2"
+                                     x:Name="PreviewPageTextBox"
+                                     Width="58"
+                                     Height="30"
+                                     Margin="8,0"
+                                     Text="1"
+                                     Style="{StaticResource TextInput}"
+                                     TextAlignment="Center"
+                                     LostFocus="PreviewPageTextBox_LostFocus"
+                                     KeyDown="PreviewPageTextBox_KeyDown" />
+                            <TextBlock Grid.Column="3"
+                                       x:Name="PreviewTotalPagesTextBlock"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       Text="/ 0" />
+                            <Button Grid.Column="4"
+                                    Width="32"
+                                    Height="30"
+                                    Margin="8,0,0,0"
+                                    Content="›"
+                                    ToolTip="Trang sau"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="NextPageButton_Click" />
+                            <TextBlock Grid.Column="5"
+                                       Margin="18,0,8,0"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="#0F172A"
+                                       Text="Zoom:" />
+                            <Button Grid.Column="6"
+                                    Width="32"
+                                    Height="30"
+                                    Content="−"
+                                    ToolTip="Thu nhỏ"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="ZoomOutButton_Click" />
+                            <TextBlock Grid.Column="7"
+                                       x:Name="PreviewZoomTextBlock"
+                                       Width="50"
+                                       Margin="8,0"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       Text="100%" />
+                            <Button Grid.Column="8"
+                                    Width="32"
+                                    Height="30"
+                                    Content="+"
+                                    ToolTip="Phóng to"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="ZoomInButton_Click" />
+                            <Button Grid.Column="9"
+                                    MinWidth="76"
+                                    Height="30"
+                                    Margin="8,0,0,0"
+                                    Content="Vừa khung"
+                                    ToolTip="Thu/phóng để vừa bề rộng khung xem"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="FitWidthButton_Click" />
+                            <Button x:Name="SetSplitPointButton"
+                                    Grid.Column="11"
+                                    MinWidth="132"
+                                    Height="30"
+                                    Content="Đặt điểm tách"
+                                    Style="{StaticResource SecondaryButton}"
+                                    IsEnabled="False"
+                                    Click="SetSplitPointButton_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Grid x:Name="PreviewHostGrid" Grid.Row="1">
+                        <ScrollViewer x:Name="PdfPagesScrollViewer"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      SizeChanged="PdfPagesScrollViewer_SizeChanged"
+                                      ScrollChanged="PdfPagesScrollViewer_ScrollChanged">
+                            <ItemsControl x:Name="PdfPagesItemsControl">
+                                <ItemsControl.LayoutTransform>
+                                    <ScaleTransform x:Name="PdfPreviewScaleTransform" ScaleX="1" ScaleY="1" />
+                                </ItemsControl.LayoutTransform>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="18,18,18,0"
+                                                Padding="8"
+                                                Background="White"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                MouseLeftButtonDown="PreviewPageCard_MouseLeftButtonDown">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding PageLabel}"
+                                                           Margin="0,0,0,8"
+                                                           HorizontalAlignment="Center"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#0F172A" />
+                                                <Image Source="{Binding Image}"
+                                                       Stretch="None"
+                                                       HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Canvas x:Name="CropOverlayCanvas"
+                                Background="#01000000"
+                                Visibility="Collapsed"
+                                MouseRightButtonDown="CropOverlayCanvas_MouseRightButtonDown"
+                                MouseMove="CropOverlayCanvas_MouseMove"
+                                MouseRightButtonUp="CropOverlayCanvas_MouseRightButtonUp">
+                            <Rectangle x:Name="CropSelectionRectangle"
+                                       Visibility="Collapsed"
+                                       Stroke="#EF2329"
+                                       StrokeThickness="2"
+                                       Fill="#33EF2329" />
+                        </Canvas>
+                        <StackPanel x:Name="PreviewPlaceholderPanel"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Width="280">
+                            <Image Source="Assets/pdf-logo.png"
+                                   Width="96"
+                                   Height="96"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,0,0,14" />
+                            <TextBlock Text="Chọn PDF để xem trước"
+                                       TextAlignment="Center"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"
+                                       Foreground="#0F172A" />
+                            <TextBlock Text="Trong tab Crop PDF, giữ chuột phải và kéo trên vùng xem trước để chọn phần cần giữ lại."
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"
+                                       Foreground="{StaticResource MutedTextBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,14">
+                            <Image Source="Assets/pdf-logo.png" Width="30" Height="30" Margin="0,0,10,0" />
+                            <StackPanel>
+                                <TextBlock Text="Tách File PDF" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                <TextBlock x:Name="DocumentInfoTextBlock"
+                                           Text="Chưa chọn PDF"
+                                           Foreground="{StaticResource MutedTextBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Grid Grid.Row="1" Grid.ColumnSpan="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="10" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="InputFileTextBox" IsReadOnly="True" Style="{StaticResource TextInput}" />
+                            <Button Grid.Column="1"
+                                    Margin="10,0,0,0"
+                                    Content="Chọn PDF"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="ChoosePdfButton_Click" />
+                            <TextBox Grid.Row="2"
+                                     x:Name="OutputFolderTextBox"
+                                     IsReadOnly="True"
+                                     Style="{StaticResource TextInput}" />
+                            <Button Grid.Row="2"
+                                    Grid.Column="1"
+                                    Margin="10,0,0,0"
+                                    Content="Chọn thư mục"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Click="ChooseOutputFolderButton_Click" />
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Margin="0,14,0,0"
+                        Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                    <TabControl x:Name="MainActionTabControl"
+                                SelectionChanged="MainActionTabControl_SelectionChanged">
+                        <TabItem Header="Tách file">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="18">
+                                    <TextBlock Text="Chế độ khoảng" FontWeight="SemiBold" />
+                                    <Grid Margin="0,10,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton x:Name="CustomModeRadio"
+                                                     Grid.Column="0"
+                                                     Style="{StaticResource ModeButton}"
+                                                     IsChecked="True"
+                                                     Checked="ModeRadio_Checked">
+                                            <TextBlock Text="Tùy chỉnh" TextAlignment="Center" />
+                                        </RadioButton>
+                                        <RadioButton x:Name="FixedModeRadio"
+                                                     Grid.Column="1"
+                                                     Style="{StaticResource ModeButton}"
+                                                     Checked="ModeRadio_Checked">
+                                            <TextBlock Text="Cố định" TextAlignment="Center" />
+                                        </RadioButton>
+                                    </Grid>
+
+                                    <StackPanel x:Name="CustomRangesPanel">
+                                        <ItemsControl x:Name="RangesItemsControl">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,0,10">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="82" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="10" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="42" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                        <TextBox Grid.Column="1"
+                                                                 Text="{Binding FromPage, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Style="{StaticResource TextInput}" />
+                                                        <TextBox Grid.Column="3"
+                                                                 Text="{Binding ToPage, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Style="{StaticResource TextInput}" />
+                                                        <Button Grid.Column="4"
+                                                                Height="36"
+                                                                Margin="8,0,0,0"
+                                                                Content="X"
+                                                                ToolTip="Xóa khoảng"
+                                                                Style="{StaticResource SecondaryButton}"
+                                                                Click="RemoveRangeButton_Click" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Button Width="150"
+                                                HorizontalAlignment="Left"
+                                                Content="+  Thêm khoảng"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="AddRangeButton_Click" />
+                                    </StackPanel>
+
+                                    <StackPanel x:Name="FixedPanel" Visibility="Collapsed">
+                                        <TextBlock Text="Mỗi file mới gồm số trang" FontWeight="SemiBold" />
+                                        <TextBox x:Name="FixedPageCountTextBox"
+                                                 Width="150"
+                                                 Margin="0,8,0,0"
+                                                 HorizontalAlignment="Left"
+                                                 Text="1"
+                                                 Style="{StaticResource TextInput}" />
+                                    </StackPanel>
+
+                                    <CheckBox x:Name="UseCropWhenSplitCheckBox"
+                                              Margin="0,18,0,0"
+                                              Content="Áp dụng vùng crop hiện tại khi tách file" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="Crop PDF">
+                            <StackPanel Margin="18">
+                                <TextBlock Text="Giữ chuột phải và kéo trên khung xem trước để chọn vùng cần giữ lại."
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedTextBrush}" />
+
+                                <Border Margin="0,14,0,0"
+                                        Padding="12"
+                                        Background="#F8FAFC"
+                                        BorderBrush="{StaticResource BorderBrushSoft}"
+                                        BorderThickness="1"
+                                        CornerRadius="6">
+                                    <StackPanel>
+                                        <TextBlock Text="Vùng crop" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="CropSelectionInfoTextBlock"
+                                                   Margin="0,6,0,0"
+                                                   Text="Chưa chọn vùng"
+                                                   Foreground="{StaticResource MutedTextBrush}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <CheckBox x:Name="ApplyCropAllPagesCheckBox"
+                                          Margin="0,16,0,0"
+                                          Content="Áp dụng cho tất cả các trang"
+                                          IsChecked="True"
+                                          Checked="ApplyCropScopeChanged"
+                                          Unchecked="ApplyCropScopeChanged" />
+
+                                <StackPanel Margin="0,12,0,0">
+                                    <TextBlock Text="Trang áp dụng" FontWeight="SemiBold" />
+                                    <TextBox x:Name="CropPageTextBox"
+                                             Width="130"
+                                             Margin="0,7,0,0"
+                                             HorizontalAlignment="Left"
+                                             Text="1"
+                                             Style="{StaticResource TextInput}" />
+                                </StackPanel>
+
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Content="Xóa vùng chọn"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Click="ClearCropSelectionButton_Click" />
+                                    <Button Grid.Column="2"
+                                            Content="Lưu PDF đã crop"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Click="CropPdfButton_Click" />
+                                </Grid>
+                            </StackPanel>
+                        </TabItem>
+                    </TabControl>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="1" Background="White" BorderBrush="#DDE2EA" BorderThickness="0,1,0,0">
+            <Grid Margin="18,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                           x:Name="StatusTextBlock"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedTextBrush}"
+                           Text="Sẵn sàng." />
+                <Button Grid.Column="1"
+                        MinWidth="150"
+                        Content="Tách PDF"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="SplitPdfButton_Click" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
