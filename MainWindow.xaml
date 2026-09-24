@@ -281,7 +281,8 @@
                                                            Foreground="#0F172A" />
                                                 <Image Source="{Binding Image}"
                                                        Stretch="None"
-                                                       HorizontalAlignment="Center">
+                                                       HorizontalAlignment="Center"
+                                                       ToolTipService.IsEnabled="{Binding ShowHoverPreview}">
                                                     <Image.ToolTip>
                                                         <ToolTip Placement="Mouse"
                                                                  Background="White"

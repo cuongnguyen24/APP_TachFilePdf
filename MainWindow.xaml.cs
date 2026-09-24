@@ -803,7 +803,7 @@ public partial class MainWindow : Window
             {
                 using var page = pdfDocument.GetPage(pageIndex);
                 var image = await RenderPdfPageAsync(page);
-                _pagePreviews.Add(new PdfPagePreviewItem((int)pageIndex + 1, image));
+                _pagePreviews.Add(CreatePagePreviewItem((int)pageIndex + 1, image));
 
                 if (pageIndex % 5 == 0 || pageIndex + 1 == pdfDocument.PageCount)
                 {
@@ -829,7 +829,7 @@ public partial class MainWindow : Window
         {
             var page = document.Pages[pageIndex];
             var image = RenderCompatibilityPagePreview(page, pageIndex + 1, document.PageCount);
-            _pagePreviews.Add(new PdfPagePreviewItem(pageIndex + 1, image, true));
+            _pagePreviews.Add(CreatePagePreviewItem(pageIndex + 1, image, true));
 
             if (pageIndex % 20 == 0 || pageIndex + 1 == document.PageCount)
             {
@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window
                 }
                 break;
             case PageEditAction.Duplicate:
-                _pagePreviews.Insert(index + 1, new PdfPagePreviewItem(index + 2, _pagePreviews[index].Image));
+                _pagePreviews.Insert(index + 1, CreatePagePreviewItem(index + 2, _pagePreviews[index].Image));
                 break;
             case PageEditAction.MovePrevious:
                 if (index > 0)
@@ -1421,7 +1421,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        _pagePreviews[index] = new PdfPagePreviewItem(_pagePreviews[index].PageNumber, image);
+        _pagePreviews[index] = CreatePagePreviewItem(
+            _pagePreviews[index].PageNumber,
+            image,
+            _pagePreviews[index].IsCompatibilityView);
     }
 
     private void RefreshPreviewPageNumbers()
@@ -1430,7 +1433,10 @@ public partial class MainWindow : Window
         {
             if (_pagePreviews[index].PageNumber != index + 1)
             {
-                _pagePreviews[index] = new PdfPagePreviewItem(index + 1, _pagePreviews[index].Image);
+                _pagePreviews[index] = CreatePagePreviewItem(
+                    index + 1,
+                    _pagePreviews[index].Image,
+                    _pagePreviews[index].IsCompatibilityView);
             }
         }
     }
@@ -2105,6 +2111,29 @@ public partial class MainWindow : Window
                 _ => "Đang xem dọc từng trang. Bấm để xem dạng lưới nhiều trang."
             };
         }
+
+        UpdatePreviewHoverPreviewState();
+    }
+
+    private PdfPagePreviewItem CreatePagePreviewItem(int pageNumber, ImageSource image, bool isCompatibilityView = false)
+    {
+        return new PdfPagePreviewItem(
+            pageNumber,
+            image,
+            isCompatibilityView,
+            _previewLayoutMode == PreviewLayoutMode.Grid);
+    }
+
+    private void UpdatePreviewHoverPreviewState()
+    {
+        var showHoverPreview = _previewLayoutMode == PreviewLayoutMode.Grid;
+        for (var index = 0; index < _pagePreviews.Count; index++)
+        {
+            if (_pagePreviews[index].ShowHoverPreview != showHoverPreview)
+            {
+                _pagePreviews[index] = _pagePreviews[index] with { ShowHoverPreview = showHoverPreview };
+            }
+        }
     }
 
     private void RefreshRangeLabels()
@@ -2167,7 +2196,11 @@ public partial class MainWindow : Window
     }
 }
 
-public sealed record PdfPagePreviewItem(int PageNumber, ImageSource Image, bool IsCompatibilityView = false)
+public sealed record PdfPagePreviewItem(
+    int PageNumber,
+    ImageSource Image,
+    bool IsCompatibilityView = false,
+    bool ShowHoverPreview = false)
 {
     public string PageLabel => $"Trang {PageNumber}";
 }
