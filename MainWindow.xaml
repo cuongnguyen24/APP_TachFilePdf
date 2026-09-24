@@ -129,7 +129,8 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Border Background="White"
+                    <Border x:Name="PreviewToolbarPanel"
+                            Background="White"
                             BorderBrush="{StaticResource BorderBrushSoft}"
                             BorderThickness="0,0,0,1"
                             Padding="12,9">
@@ -251,6 +252,25 @@
                                                 BorderThickness="1"
                                                 CornerRadius="6"
                                                 MouseLeftButtonDown="PreviewPageCard_MouseLeftButtonDown">
+                                            <Border.ContextMenu>
+                                                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                                    <MenuItem Header="Chỉnh sửa">
+                                                        <MenuItem Header="Xoay trái 90°" Click="RotatePageLeftMenuItem_Click" />
+                                                        <MenuItem Header="Xoay phải 90°" Click="RotatePageRightMenuItem_Click" />
+                                                        <MenuItem Header="Kiểm tra DPI" Click="CheckPageDpiMenuItem_Click" />
+                                                        <Separator />
+                                                        <MenuItem Header="Xóa trang" Click="DeletePageMenuItem_Click" />
+                                                        <MenuItem Header="Nhân bản trang" Click="DuplicatePageMenuItem_Click" />
+                                                        <Separator />
+                                                        <MenuItem Header="Chuyển lên trước" Click="MovePagePreviousMenuItem_Click" />
+                                                        <MenuItem Header="Chuyển xuống sau" Click="MovePageNextMenuItem_Click" />
+                                                        <MenuItem Header="Đưa lên đầu" Click="MovePageFirstMenuItem_Click" />
+                                                        <MenuItem Header="Đưa xuống cuối" Click="MovePageLastMenuItem_Click" />
+                                                        <Separator />
+                                                        <MenuItem Header="Hoàn tác chỉnh sửa file này" Click="ResetPdfEditsMenuItem_Click" />
+                                                    </MenuItem>
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
                                             <StackPanel>
                                                 <TextBlock Text="{Binding PageLabel}"
                                                            Margin="0,0,0,8"
@@ -312,12 +332,38 @@
                                        FontSize="18"
                                        FontWeight="SemiBold"
                                        Foreground="#0F172A" />
-                            <TextBlock Text="Trong tab Crop PDF, giữ chuột phải và kéo trên vùng xem trước để chọn phần cần giữ lại."
+                            <TextBlock Text="Preview dùng cho thao tác tách file và chỉnh sửa nhanh từng trang."
                                        Margin="0,8,0,0"
                                        TextWrapping="Wrap"
                                        TextAlignment="Center"
                                        Foreground="{StaticResource MutedTextBrush}" />
                         </StackPanel>
+                        <Border x:Name="PreviewDisabledOverlay"
+                                Background="#EEF1F6"
+                                Opacity="0.92"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="True">
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Width="300">
+                                <Image Source="Assets/pdf-logo.png"
+                                       Width="76"
+                                       Height="76"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,0,0,12"
+                                       Opacity="0.45" />
+                                <TextBlock Text="Preview đang tạm ẩn"
+                                           TextAlignment="Center"
+                                           FontSize="18"
+                                           FontWeight="SemiBold"
+                                           Foreground="#64748B" />
+                                <TextBlock Text="Quay lại tab Tách file để xem và chỉnh sửa PDF đầu vào."
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           Foreground="#94A3B8" />
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Grid>
             </Border>
@@ -328,7 +374,8 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Border Background="{StaticResource PanelBrush}"
+                <Border x:Name="DocumentPickerPanel"
+                        Background="{StaticResource PanelBrush}"
                         BorderBrush="{StaticResource BorderBrushSoft}"
                         BorderThickness="1"
                         CornerRadius="8"
@@ -390,7 +437,7 @@
                         CornerRadius="8">
                     <TabControl x:Name="MainActionTabControl"
                                 SelectionChanged="MainActionTabControl_SelectionChanged">
-                        <TabItem Header="Tách file">
+                        <TabItem x:Name="SplitTabItem" Header="Tách file">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="18">
                                     <TextBlock Text="Chế độ khoảng" FontWeight="SemiBold" />
@@ -463,12 +510,13 @@
 
                                     <CheckBox x:Name="UseCropWhenSplitCheckBox"
                                               Margin="0,18,0,0"
-                                              Content="Áp dụng vùng crop hiện tại khi tách file" />
+                                              Content="Áp dụng vùng crop hiện tại khi tách file"
+                                              Visibility="Collapsed" />
                                 </StackPanel>
                             </ScrollViewer>
                         </TabItem>
 
-                        <TabItem Header="Crop PDF">
+                        <TabItem x:Name="CropTabItem" Header="Crop PDF" Visibility="Collapsed">
                             <StackPanel Margin="18">
                                 <TextBlock Text="Giữ chuột phải và kéo trên khung xem trước để chọn vùng cần giữ lại."
                                            TextWrapping="Wrap"
@@ -523,7 +571,7 @@
                             </StackPanel>
                         </TabItem>
 
-                        <TabItem Header="Gộp PDF">
+                        <TabItem x:Name="MergeTabItem" Header="Gộp PDF">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel Margin="18">
                                     <TextBlock Text="Danh sách file cần gộp" FontWeight="SemiBold" />

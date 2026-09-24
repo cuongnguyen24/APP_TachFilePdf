@@ -13,6 +13,7 @@ using Windows.Storage;
 using Windows.Storage.Streams;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.IO;
 using WinPdfDocument = Windows.Data.Pdf.PdfDocument;
 using WinPdfPageRenderOptions = Windows.Data.Pdf.PdfPageRenderOptions;
@@ -36,7 +37,9 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<PdfPagePreviewItem> _pagePreviews = [];
     private readonly ObservableCollection<MergePdfItem> _mergeFiles = [];
     private string? _inputFilePath;
+    private string? _workingPdfPath;
     private string? _outputFolderPath;
+    private MergePdfItem? _activeMergeItem;
     private int _pageCount;
     private int _currentPreviewPage = 1;
     private double _previewZoom = 1;
@@ -60,10 +63,16 @@ public partial class MainWindow : Window
         UpdatePreviewInteractionLayers();
         UpdatePreviewPageHeader();
         UpdatePrimaryActionButton();
+        UpdateTabWorkspaceState();
     }
 
     private async void ChoosePdfButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsMergeTabSelected())
+        {
+            return;
+        }
+
         var dialog = new WpfOpenFileDialog
         {
             Title = "Chọn tệp PDF",
@@ -77,7 +86,9 @@ public partial class MainWindow : Window
             return;
         }
 
+        _activeMergeItem = null;
         _inputFilePath = dialog.FileName;
+        _workingPdfPath = null;
         InputFileTextBox.Text = _inputFilePath;
 
         if (string.IsNullOrWhiteSpace(_outputFolderPath))
@@ -136,6 +147,11 @@ public partial class MainWindow : Window
 
     private void ChooseOutputFolderButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsMergeTabSelected())
+        {
+            return;
+        }
+
         using var dialog = new WinForms.FolderBrowserDialog
         {
             Description = "Chọn thư mục xuất file PDF",
@@ -289,7 +305,7 @@ public partial class MainWindow : Window
 
     private void SetCurrentPageAsSplitPoint()
     {
-        if (_pageCount <= 0 || MainActionTabControl.SelectedIndex != 0 || CustomModeRadio.IsChecked != true)
+        if (_pageCount <= 0 || !IsSplitTabSelected() || CustomModeRadio.IsChecked != true)
         {
             return;
         }
@@ -322,6 +338,7 @@ public partial class MainWindow : Window
         {
             UpdatePreviewInteractionLayers();
             UpdatePrimaryActionButton();
+            UpdateTabWorkspaceState();
         }
     }
 
@@ -405,18 +422,13 @@ public partial class MainWindow : Window
 
     private void PrimaryActionButton_Click(object sender, RoutedEventArgs e)
     {
-        switch (MainActionTabControl.SelectedIndex)
+        if (IsMergeTabSelected())
         {
-            case 1:
-                CropPdfButton_Click(sender, e);
-                break;
-            case 2:
-                MergePdfButton_Click(sender, e);
-                break;
-            default:
-                SplitPdfButton_Click(sender, e);
-                break;
+            MergePdfButton_Click(sender, e);
+            return;
         }
+
+        SplitPdfButton_Click(sender, e);
     }
 
     private void SplitPdfButton_Click(object sender, RoutedEventArgs e)
@@ -430,7 +442,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(_outputFolderPath!);
 
-            using var inputDocument = PdfReader.Open(_inputFilePath!, PdfDocumentOpenMode.Import);
+            using var inputDocument = PdfReader.Open(GetActivePdfPath(), PdfDocumentOpenMode.Import);
             var ranges = CustomModeRadio.IsChecked == true
                 ? BuildCustomRanges(inputDocument.PageCount)
                 : BuildFixedRanges(inputDocument.PageCount);
@@ -445,7 +457,7 @@ public partial class MainWindow : Window
                 outputCount++;
                 var outputFile = Path.Combine(
                     _outputFolderPath!,
-                    $"{baseName}_trang_{range.From:000}_den_{range.To:000}.pdf");
+                    $"{baseName}_{range.From:000}-{range.To:000}.pdf");
                 SaveRange(inputDocument, range.From, range.To, outputFile, cropOptions);
             }
 
@@ -470,7 +482,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(_outputFolderPath!);
 
-            using var inputDocument = PdfReader.Open(_inputFilePath!, PdfDocumentOpenMode.Import);
+            using var inputDocument = PdfReader.Open(GetActivePdfPath(), PdfDocumentOpenMode.Import);
             var cropOptions = ReadCropOptions(inputDocument.PageCount);
             var baseName = SanitizeFileName(Path.GetFileNameWithoutExtension(_inputFilePath!));
             var outputFile = GetUniqueOutputPath(Path.Combine(_outputFolderPath!, $"{baseName}_crop.pdf"));
@@ -573,13 +585,14 @@ public partial class MainWindow : Window
         MoveSelectedMergeFile(1);
     }
 
-    private void MergeFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void MergeFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (MainActionTabControl.SelectedIndex != 2 || MergeFilesListBox.SelectedItem is not MergePdfItem item)
+        if (!IsMergeTabSelected() || MergeFilesListBox.SelectedItem is not MergePdfItem item)
         {
             return;
         }
 
+        await Task.Yield();
         StatusTextBlock.Text = $"Đã chọn trong danh sách gộp: {item.FileName}";
     }
 
@@ -598,7 +611,7 @@ public partial class MainWindow : Window
             using var outputDocument = new PdfDocument();
             foreach (var item in _mergeFiles)
             {
-                using var inputDocument = PdfReader.Open(item.FilePath, PdfDocumentOpenMode.Import);
+                using var inputDocument = PdfReader.Open(item.ActiveFilePath, PdfDocumentOpenMode.Import);
                 for (var pageIndex = 0; pageIndex < inputDocument.PageCount; pageIndex++)
                 {
                     outputDocument.AddPage(inputDocument.Pages[pageIndex]);
@@ -626,7 +639,7 @@ public partial class MainWindow : Window
 
         foreach (var item in _mergeFiles)
         {
-            if (!File.Exists(item.FilePath))
+            if (!File.Exists(item.ActiveFilePath))
             {
                 WpfMessageBox.Show(this, $"Không tìm thấy file: {item.FilePath}", "Thiếu file PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
@@ -694,12 +707,50 @@ public partial class MainWindow : Window
             return;
         }
 
-        PrimaryActionButton.Content = MainActionTabControl.SelectedIndex switch
+        PrimaryActionButton.Content = IsMergeTabSelected() ? "Gộp PDF" : "Tách PDF";
+    }
+
+    private void UpdateTabWorkspaceState()
+    {
+        if (PreviewDisabledOverlay is null ||
+            PreviewToolbarPanel is null ||
+            DocumentPickerPanel is null ||
+            PdfPagesScrollViewer is null ||
+            CropOverlayCanvas is null ||
+            StatusTextBlock is null)
         {
-            1 => "Crop PDF",
-            2 => "Gộp PDF",
-            _ => "Tách PDF"
-        };
+            return;
+        }
+
+        var isMergeTab = IsMergeTabSelected();
+        PreviewDisabledOverlay.Visibility = isMergeTab ? Visibility.Visible : Visibility.Collapsed;
+        PreviewToolbarPanel.IsEnabled = !isMergeTab;
+        PreviewToolbarPanel.Opacity = isMergeTab ? 0.42 : 1;
+        PdfPagesScrollViewer.IsEnabled = !isMergeTab;
+        DocumentPickerPanel.IsEnabled = !isMergeTab;
+        DocumentPickerPanel.Opacity = isMergeTab ? 0.46 : 1;
+
+        if (isMergeTab)
+        {
+            CropOverlayCanvas.Visibility = Visibility.Collapsed;
+            _activeMergeItem = null;
+            StatusTextBlock.Text = "Tab Gộp PDF đang hoạt động. Preview tách file đã tạm ẩn.";
+        }
+        else
+        {
+            _activeMergeItem = null;
+            StatusTextBlock.Text = _pageCount > 0 ? $"Đã chọn PDF có {_pageCount} trang." : "Sẵn sàng.";
+        }
+    }
+
+    private bool IsSplitTabSelected()
+    {
+        return MainActionTabControl?.SelectedItem == SplitTabItem;
+    }
+
+    private bool IsMergeTabSelected()
+    {
+        return MainActionTabControl?.SelectedItem == MergeTabItem;
     }
 
     private async Task LoadPdfPreviewPagesAsync(string filePath)
@@ -765,6 +816,79 @@ public partial class MainWindow : Window
             SetCurrentPageAsSplitPoint();
             e.Handled = true;
         }
+    }
+
+    private async void RotatePageLeftMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.RotateLeft);
+    }
+
+    private async void RotatePageRightMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.RotateRight);
+    }
+
+    private void CheckPageDpiMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetPageItemFromMenuSender(sender) is not { } pageItem)
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = PdfReader.Open(GetActivePdfPath(), PdfDocumentOpenMode.Import);
+            var result = AnalyzePageDpi(document.Pages[pageItem.PageNumber - 1], pageItem.PageNumber, document.PageCount);
+            StatusTextBlock.Text = result.StatusText;
+            WpfMessageBox.Show(this, result.Message, "Kiểm tra DPI", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Kiểm tra DPI thất bại.";
+            WpfMessageBox.Show(this, ex.Message, "Lỗi kiểm tra DPI", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void DeletePageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.Delete);
+    }
+
+    private async void DuplicatePageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.Duplicate);
+    }
+
+    private async void MovePagePreviousMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.MovePrevious);
+    }
+
+    private async void MovePageNextMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.MoveNext);
+    }
+
+    private async void MovePageFirstMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.MoveFirst);
+    }
+
+    private async void MovePageLastMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        await EditPreviewPageAsync(sender, PageEditAction.MoveLast);
+    }
+
+    private async void ResetPdfEditsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inputFilePath is null)
+        {
+            return;
+        }
+
+        ResetWorkingPdf();
+        await ReloadActivePdfPreviewAsync(Math.Clamp(_currentPreviewPage, 1, Math.Max(_pageCount, 1)));
+        StatusTextBlock.Text = "Đã hoàn tác chỉnh sửa và quay lại file PDF gốc.";
     }
 
     private void PdfPagesScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
@@ -884,6 +1008,473 @@ public partial class MainWindow : Window
             _currentPreviewPage = bestPage;
             SyncCurrentPageFields();
         }
+    }
+
+    private async Task EditPreviewPageAsync(object sender, PageEditAction action)
+    {
+        if (GetPageItemFromMenuSender(sender) is not { } pageItem || _inputFilePath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var requestedPage = pageItem.PageNumber;
+            if (action == PageEditAction.Delete && _pageCount <= 1)
+            {
+                WpfMessageBox.Show(this, "PDF phải còn ít nhất 1 trang.", "Không thể xóa trang", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var sourcePath = GetActivePdfPath();
+            var editedPath = CreateWorkingPdfPath();
+            var newCurrentPage = ApplyPageEdit(sourcePath, editedPath, requestedPage, action);
+            SetWorkingPdf(editedPath);
+            UpdatePreviewAfterPageEdit(action, requestedPage, newCurrentPage);
+            await Task.Yield();
+            StatusTextBlock.Text = BuildPageEditStatus(action, requestedPage);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Chỉnh sửa PDF thất bại.";
+            WpfMessageBox.Show(this, ex.Message, "Lỗi chỉnh sửa PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static PdfPagePreviewItem? GetPageItemFromMenuSender(object sender)
+    {
+        if (sender is FrameworkElement { DataContext: PdfPagePreviewItem directItem })
+        {
+            return directItem;
+        }
+
+        if (sender is MenuItem menuItem)
+        {
+            var current = menuItem.Parent;
+            while (current is FrameworkElement element)
+            {
+                if (element.DataContext is PdfPagePreviewItem item)
+                {
+                    return item;
+                }
+
+                current = element.Parent;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task ReloadActivePdfPreviewAsync(int preferredPage)
+    {
+        var activePath = GetActivePdfPath();
+        using (var document = PdfReader.Open(activePath, PdfDocumentOpenMode.Import))
+        {
+            _pageCount = document.PageCount;
+        }
+
+        if (_activeMergeItem is not null)
+        {
+            _activeMergeItem.PageCount = _pageCount;
+        }
+
+        _currentPreviewPage = Math.Clamp(preferredPage, 1, Math.Max(_pageCount, 1));
+        SyncCurrentPageFields();
+        ClampSplitRangesToPageCount();
+        UpdatePreviewPageHeader();
+        PreviewPlaceholderPanel.Visibility = Visibility.Collapsed;
+        _pagePreviews.Clear();
+        StatusTextBlock.Text = $"Đang render {_pageCount} trang PDF...";
+        await LoadPdfPreviewPagesAsync(activePath);
+        if (_isMultiPagePreviewLayout)
+        {
+            SetPreviewZoom(MultiPagePreviewZoom);
+        }
+        else
+        {
+            FitPreviewToWidth(allowZoomIn: false);
+        }
+
+        ScrollToPreviewPage(_currentPreviewPage);
+        DocumentInfoTextBlock.Text = $"{_pageCount} trang";
+    }
+
+    private int ApplyPageEdit(string sourcePath, string editedPath, int pageNumber, PageEditAction action)
+    {
+        using var inputDocument = PdfReader.Open(sourcePath, PdfDocumentOpenMode.Import);
+        using var outputDocument = new PdfDocument();
+
+        var pageCount = inputDocument.PageCount;
+        var pageIndex = Math.Clamp(pageNumber, 1, pageCount) - 1;
+        var order = Enumerable.Range(0, pageCount).Select(index => new PageCopyPlan(index)).ToList();
+
+        switch (action)
+        {
+            case PageEditAction.RotateLeft:
+                order[pageIndex] = order[pageIndex] with { RotateDelta = -90 };
+                break;
+            case PageEditAction.RotateRight:
+                order[pageIndex] = order[pageIndex] with { RotateDelta = 90 };
+                break;
+            case PageEditAction.Delete:
+                order.RemoveAt(pageIndex);
+                break;
+            case PageEditAction.Duplicate:
+                order.Insert(pageIndex + 1, order[pageIndex]);
+                break;
+            case PageEditAction.MovePrevious:
+                if (pageIndex > 0)
+                {
+                    (order[pageIndex - 1], order[pageIndex]) = (order[pageIndex], order[pageIndex - 1]);
+                    pageIndex--;
+                }
+                break;
+            case PageEditAction.MoveNext:
+                if (pageIndex < order.Count - 1)
+                {
+                    (order[pageIndex], order[pageIndex + 1]) = (order[pageIndex + 1], order[pageIndex]);
+                    pageIndex++;
+                }
+                break;
+            case PageEditAction.MoveFirst:
+                if (pageIndex > 0)
+                {
+                    var item = order[pageIndex];
+                    order.RemoveAt(pageIndex);
+                    order.Insert(0, item);
+                    pageIndex = 0;
+                }
+                break;
+            case PageEditAction.MoveLast:
+                if (pageIndex < order.Count - 1)
+                {
+                    var item = order[pageIndex];
+                    order.RemoveAt(pageIndex);
+                    order.Add(item);
+                    pageIndex = order.Count - 1;
+                }
+                break;
+        }
+
+        foreach (var plan in order)
+        {
+            var outputPage = outputDocument.AddPage(inputDocument.Pages[plan.SourceIndex]);
+            if (plan.RotateDelta != 0)
+            {
+                outputPage.Rotate = NormalizePdfRotation(outputPage.Rotate + plan.RotateDelta);
+            }
+        }
+
+        outputDocument.Save(editedPath);
+        return action == PageEditAction.Delete
+            ? Math.Clamp(pageNumber, 1, Math.Max(order.Count, 1))
+            : pageIndex + 1;
+    }
+
+    private void UpdatePreviewAfterPageEdit(PageEditAction action, int pageNumber, int newCurrentPage)
+    {
+        var index = Math.Clamp(pageNumber, 1, Math.Max(_pagePreviews.Count, 1)) - 1;
+        switch (action)
+        {
+            case PageEditAction.RotateLeft:
+                ReplacePreviewImage(index, RotateImageSource(_pagePreviews[index].Image, -90));
+                break;
+            case PageEditAction.RotateRight:
+                ReplacePreviewImage(index, RotateImageSource(_pagePreviews[index].Image, 90));
+                break;
+            case PageEditAction.Delete:
+                if (_pagePreviews.Count > 1)
+                {
+                    _pagePreviews.RemoveAt(index);
+                }
+                break;
+            case PageEditAction.Duplicate:
+                _pagePreviews.Insert(index + 1, new PdfPagePreviewItem(index + 2, _pagePreviews[index].Image));
+                break;
+            case PageEditAction.MovePrevious:
+                if (index > 0)
+                {
+                    _pagePreviews.Move(index, index - 1);
+                }
+                break;
+            case PageEditAction.MoveNext:
+                if (index < _pagePreviews.Count - 1)
+                {
+                    _pagePreviews.Move(index, index + 1);
+                }
+                break;
+            case PageEditAction.MoveFirst:
+                if (index > 0)
+                {
+                    _pagePreviews.Move(index, 0);
+                }
+                break;
+            case PageEditAction.MoveLast:
+                if (index < _pagePreviews.Count - 1)
+                {
+                    _pagePreviews.Move(index, _pagePreviews.Count - 1);
+                }
+                break;
+        }
+
+        RefreshPreviewPageNumbers();
+        _pageCount = _pagePreviews.Count;
+        if (_activeMergeItem is not null)
+        {
+            _activeMergeItem.PageCount = _pageCount;
+        }
+
+        DocumentInfoTextBlock.Text = $"{_pageCount} trang";
+        _currentPreviewPage = Math.Clamp(newCurrentPage, 1, Math.Max(_pageCount, 1));
+        SyncCurrentPageFields();
+        ClampSplitRangesToPageCount();
+        UpdatePreviewPageHeader();
+        ScrollToPreviewPage(_currentPreviewPage);
+    }
+
+    private void ReplacePreviewImage(int index, ImageSource image)
+    {
+        if (index < 0 || index >= _pagePreviews.Count)
+        {
+            return;
+        }
+
+        _pagePreviews[index] = new PdfPagePreviewItem(_pagePreviews[index].PageNumber, image);
+    }
+
+    private void RefreshPreviewPageNumbers()
+    {
+        for (var index = 0; index < _pagePreviews.Count; index++)
+        {
+            if (_pagePreviews[index].PageNumber != index + 1)
+            {
+                _pagePreviews[index] = new PdfPagePreviewItem(index + 1, _pagePreviews[index].Image);
+            }
+        }
+    }
+
+    private static ImageSource RotateImageSource(ImageSource source, double angle)
+    {
+        var transform = new RotateTransform(angle);
+        var rotated = new TransformedBitmap((BitmapSource)source, transform);
+        rotated.Freeze();
+        return rotated;
+    }
+
+    private static PageDpiResult AnalyzePageDpi(PdfPage page, int pageNumber, int pageCount)
+    {
+        var pageWidthPoints = Math.Max(0.01, page.MediaBox.Width);
+        var pageHeightPoints = Math.Max(0.01, page.MediaBox.Height);
+        var pageWidthInches = pageWidthPoints / 72d;
+        var pageHeightInches = pageHeightPoints / 72d;
+        var images = new List<PdfImageInfo>();
+        CollectPageImages(page.Elements.GetDictionary("/Resources"), images, new HashSet<string>());
+
+        if (images.Count == 0)
+        {
+            var message =
+                $"Trang {pageNumber}/{pageCount}\n" +
+                $"Kích thước trang: {pageWidthInches:0.##}\" x {pageHeightInches:0.##}\"\n\n" +
+                "Không phát hiện ảnh raster trong trang này.\n" +
+                "Kết luận: Text/vector - không có DPI gốc cố định.";
+            return new PageDpiResult("Trang này là text/vector, không có DPI gốc cố định.", message);
+        }
+
+        var mainImage = images
+            .OrderByDescending(image => (long)image.PixelWidth * image.PixelHeight)
+            .First();
+        var estimates = images
+            .SelectMany(image => new[]
+            {
+                image.PixelWidth / pageWidthInches,
+                image.PixelHeight / pageHeightInches
+            })
+            .Where(double.IsFinite)
+            .ToList();
+        var mainDpi = Math.Min(mainImage.PixelWidth / pageWidthInches, mainImage.PixelHeight / pageHeightInches);
+        var minDpi = estimates.Min();
+        var maxDpi = estimates.Max();
+        var conclusion = DpiConclusion(mainDpi);
+        var messageText =
+            $"Trang {pageNumber}/{pageCount}\n" +
+            $"Kích thước trang: {pageWidthInches:0.##}\" x {pageHeightInches:0.##}\"\n" +
+            $"Số ảnh raster phát hiện: {images.Count}\n\n" +
+            $"Ảnh chính: {mainImage.PixelWidth} x {mainImage.PixelHeight}px\n" +
+            $"DPI ước tính ảnh chính: {Math.Round(mainDpi)} DPI\n" +
+            $"DPI thấp nhất/cao nhất ước tính: {Math.Round(minDpi)} / {Math.Round(maxDpi)} DPI\n" +
+            $"Kết luận: {conclusion}\n\n" +
+            "Ghi chú: kết quả này ước tính theo kích thước trang. Với PDF scan toàn trang thường rất sát; PDF nhiều ảnh nhỏ có thể cần kiểm tra bằng tool PDF.js chuyên sâu.";
+
+        return new PageDpiResult($"Trang {pageNumber}: khoảng {Math.Round(mainDpi)} DPI - {conclusion}.", messageText);
+    }
+
+    private static void CollectPageImages(PdfDictionary? resources, List<PdfImageInfo> images, HashSet<string> visited)
+    {
+        if (resources is null)
+        {
+            return;
+        }
+
+        var xObjects = resources.Elements.GetDictionary("/XObject");
+        if (xObjects is null)
+        {
+            return;
+        }
+
+        foreach (var name in xObjects.Elements.KeyNames)
+        {
+            if (xObjects.Elements[name] is not PdfReference reference || reference.Value is not PdfDictionary xObject)
+            {
+                continue;
+            }
+
+            var objectId = reference.ObjectID.ToString();
+            if (!visited.Add(objectId))
+            {
+                continue;
+            }
+
+            var subtype = xObject.Elements.GetName("/Subtype");
+            if (string.Equals(subtype, "/Image", StringComparison.Ordinal))
+            {
+                var width = xObject.Elements.GetInteger("/Width");
+                var height = xObject.Elements.GetInteger("/Height");
+                if (width > 0 && height > 0)
+                {
+                    images.Add(new PdfImageInfo(width, height));
+                }
+            }
+            else if (string.Equals(subtype, "/Form", StringComparison.Ordinal))
+            {
+                CollectPageImages(xObject.Elements.GetDictionary("/Resources"), images, visited);
+            }
+        }
+    }
+
+    private static string DpiConclusion(double dpi)
+    {
+        if (!double.IsFinite(dpi))
+        {
+            return "Không xác định";
+        }
+
+        if (dpi < 150)
+        {
+            return "Rất thấp";
+        }
+
+        if (dpi < 200)
+        {
+            return "Thấp";
+        }
+
+        if (dpi < 300)
+        {
+            return "Khá";
+        }
+
+        if (dpi < 400)
+        {
+            return "Tốt cho OCR";
+        }
+
+        return "Cao";
+    }
+
+    private static int NormalizePdfRotation(int rotation)
+    {
+        var normalized = rotation % 360;
+        return normalized < 0 ? normalized + 360 : normalized;
+    }
+
+    private string GetActivePdfPath()
+    {
+        if (!string.IsNullOrWhiteSpace(_workingPdfPath) && File.Exists(_workingPdfPath))
+        {
+            return _workingPdfPath;
+        }
+
+        return _inputFilePath ?? throw new InvalidOperationException("Vui lòng chọn tệp PDF đầu vào.");
+    }
+
+    private static string CreateWorkingPdfPath()
+    {
+        return Path.Combine(Path.GetTempPath(), $"TachFilePdf_Edit_{Guid.NewGuid():N}.pdf");
+    }
+
+    private void SetWorkingPdf(string filePath)
+    {
+        DeleteWorkingPdfIfNeeded();
+        _workingPdfPath = filePath;
+        if (_activeMergeItem is not null)
+        {
+            _activeMergeItem.EditedFilePath = filePath;
+        }
+    }
+
+    private void ResetWorkingPdf()
+    {
+        DeleteWorkingPdfIfNeeded();
+        if (_activeMergeItem is not null)
+        {
+            _activeMergeItem.EditedFilePath = null;
+        }
+
+        _workingPdfPath = null;
+    }
+
+    private void DeleteWorkingPdfIfNeeded()
+    {
+        if (string.IsNullOrWhiteSpace(_workingPdfPath) || !File.Exists(_workingPdfPath))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(_workingPdfPath);
+        }
+        catch
+        {
+            // Temporary edit files are best-effort cleanup.
+        }
+    }
+
+    private void ClampSplitRangesToPageCount()
+    {
+        if (_pageCount <= 0)
+        {
+            return;
+        }
+
+        foreach (var item in _ranges)
+        {
+            if (int.TryParse(item.FromPage, out var from))
+            {
+                item.FromPage = Math.Clamp(from, 1, _pageCount).ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (int.TryParse(item.ToPage, out var to))
+            {
+                item.ToPage = Math.Clamp(to, 1, _pageCount).ToString(CultureInfo.InvariantCulture);
+            }
+        }
+    }
+
+    private static string BuildPageEditStatus(PageEditAction action, int pageNumber)
+    {
+        return action switch
+        {
+            PageEditAction.RotateLeft => $"Đã xoay trái trang {pageNumber}.",
+            PageEditAction.RotateRight => $"Đã xoay phải trang {pageNumber}.",
+            PageEditAction.Delete => $"Đã xóa trang {pageNumber}.",
+            PageEditAction.Duplicate => $"Đã nhân bản trang {pageNumber}.",
+            PageEditAction.MovePrevious => $"Đã chuyển trang {pageNumber} lên trước.",
+            PageEditAction.MoveNext => $"Đã chuyển trang {pageNumber} xuống sau.",
+            PageEditAction.MoveFirst => $"Đã đưa trang {pageNumber} lên đầu.",
+            PageEditAction.MoveLast => $"Đã đưa trang {pageNumber} xuống cuối.",
+            _ => "Đã chỉnh sửa PDF."
+        };
     }
 
     private bool ValidateInputAndOutput()
@@ -1221,7 +1812,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        CropOverlayCanvas.Visibility = MainActionTabControl.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        CropOverlayCanvas.Visibility = MainActionTabControl.SelectedItem == CropTabItem
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void ClearCropSelectionVisual()
@@ -1332,9 +1925,29 @@ public sealed class PageRangeItem : INotifyPropertyChanged
 
 public readonly record struct PageRange(int From, int To);
 
+public readonly record struct PageCopyPlan(int SourceIndex, int RotateDelta = 0);
+
+public readonly record struct PdfImageInfo(int PixelWidth, int PixelHeight);
+
+public readonly record struct PageDpiResult(string StatusText, string Message);
+
+public enum PageEditAction
+{
+    RotateLeft,
+    RotateRight,
+    Delete,
+    Duplicate,
+    MovePrevious,
+    MoveNext,
+    MoveFirst,
+    MoveLast
+}
+
 public sealed class MergePdfItem : INotifyPropertyChanged
 {
     private int _index;
+    private int _pageCount;
+    private string? _editedFilePath;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -1355,13 +1968,50 @@ public sealed class MergePdfItem : INotifyPropertyChanged
 
     public required string FilePath { get; init; }
 
-    public required int PageCount { get; init; }
+    public required int PageCount
+    {
+        get => _pageCount;
+        set
+        {
+            if (_pageCount == value)
+            {
+                return;
+            }
+
+            _pageCount = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Detail));
+        }
+    }
 
     public required long FileSizeBytes { get; init; }
 
+    public string? EditedFilePath
+    {
+        get => _editedFilePath;
+        set
+        {
+            if (_editedFilePath == value)
+            {
+                return;
+            }
+
+            _editedFilePath = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Detail));
+            OnPropertyChanged(nameof(ActiveFilePath));
+        }
+    }
+
     public string FileName => Path.GetFileName(FilePath);
 
-    public string Detail => $"{PageCount} trang - {FormatFileSize(FileSizeBytes)} - {FilePath}";
+    public string ActiveFilePath => !string.IsNullOrWhiteSpace(EditedFilePath) && File.Exists(EditedFilePath)
+        ? EditedFilePath
+        : FilePath;
+
+    public string Detail => EditedFilePath is null
+        ? $"{PageCount} trang - {FormatFileSize(FileSizeBytes)} - {FilePath}"
+        : $"{PageCount} trang - đã chỉnh sửa - {FilePath}";
 
     private static string FormatFileSize(long bytes)
     {
