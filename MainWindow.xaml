@@ -1,7 +1,7 @@
 <Window x:Class="TachFilePdf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tách File PDF"
+        Title="Tách/Gộp File PDF"
         Width="1220"
         Height="760"
         MinWidth="1040"
@@ -325,7 +325,7 @@
                         <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,14">
                             <Image Source="Assets/pdf-logo.png" Width="30" Height="30" Margin="0,0,10,0" />
                             <StackPanel>
-                                <TextBlock Text="Tách File PDF" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
+                                <TextBlock Text="Tách/Gộp File PDF" FontSize="18" FontWeight="Bold" Foreground="#0F172A" />
                                 <TextBlock x:Name="DocumentInfoTextBlock"
                                            Text="Chưa chọn PDF"
                                            Foreground="{StaticResource MutedTextBrush}" />
@@ -502,6 +502,104 @@
                                 </Grid>
                             </StackPanel>
                         </TabItem>
+
+                        <TabItem Header="Gộp PDF">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="18">
+                                    <TextBlock Text="Danh sách file cần gộp" FontWeight="SemiBold" />
+                                    <TextBlock Text="Thứ tự trong danh sách là thứ tự xuất hiện trong file PDF sau khi gộp."
+                                               Margin="0,5,0,0"
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource MutedTextBrush}" />
+
+                                    <Grid Margin="0,12,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Content="+  Thêm PDF"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="AddMergeFilesButton_Click" />
+                                        <Button Grid.Column="2"
+                                                Content="Xóa danh sách"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="ClearMergeFilesButton_Click" />
+                                    </Grid>
+
+                                    <Border Background="#F8FAFC"
+                                            BorderBrush="{StaticResource BorderBrushSoft}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                        <ListBox x:Name="MergeFilesListBox"
+                                                 MinHeight="180"
+                                                 MaxHeight="260"
+                                                 BorderThickness="0"
+                                                 Background="Transparent"
+                                                 SelectionMode="Single"
+                                                 SelectionChanged="MergeFilesListBox_SelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="8,7">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="32" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="26"
+                                                                Height="26"
+                                                                CornerRadius="13"
+                                                                Background="#FEE2E2">
+                                                            <TextBlock Text="{Binding Index}"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Center"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="#B91C1C" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                            <TextBlock Text="{Binding FileName}"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="#0F172A"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding Detail}"
+                                                                       Margin="0,3,0,0"
+                                                                       Foreground="{StaticResource MutedTextBrush}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Border>
+
+                                    <Grid Margin="0,10,0,18">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="8" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Content="Lên"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="MoveMergeFileUpButton_Click" />
+                                        <Button Grid.Column="2"
+                                                Content="Xuống"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="MoveMergeFileDownButton_Click" />
+                                        <Button Grid.Column="4"
+                                                Content="Xóa file"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="RemoveMergeFileButton_Click" />
+                                    </Grid>
+
+                                    <TextBlock Text="Tên file sau khi gộp" FontWeight="SemiBold" />
+                                    <TextBox x:Name="MergeOutputNameTextBox"
+                                             Margin="0,8,0,0"
+                                             Text="PDF_da_gop.pdf"
+                                             Style="{StaticResource TextInput}" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
                     </TabControl>
                 </Border>
             </Grid>
@@ -518,11 +616,12 @@
                            VerticalAlignment="Center"
                            Foreground="{StaticResource MutedTextBrush}"
                            Text="Sẵn sàng." />
-                <Button Grid.Column="1"
+                <Button x:Name="PrimaryActionButton"
+                        Grid.Column="1"
                         MinWidth="150"
                         Content="Tách PDF"
                         Style="{StaticResource PrimaryButton}"
-                        Click="SplitPdfButton_Click" />
+                        Click="PrimaryActionButton_Click" />
             </Grid>
         </Border>
     </Grid>

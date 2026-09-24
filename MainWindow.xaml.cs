@@ -33,6 +33,7 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<PageRangeItem> _ranges = [];
     private readonly ObservableCollection<PdfPagePreviewItem> _pagePreviews = [];
+    private readonly ObservableCollection<MergePdfItem> _mergeFiles = [];
     private string? _inputFilePath;
     private string? _outputFolderPath;
     private int _pageCount;
@@ -50,10 +51,12 @@ public partial class MainWindow : Window
         _ranges.Add(new PageRangeItem { Index = 1, FromPage = "1", ToPage = "1" });
         RangesItemsControl.ItemsSource = _ranges;
         PdfPagesItemsControl.ItemsSource = _pagePreviews;
+        MergeFilesListBox.ItemsSource = _mergeFiles;
         ApplyCropScopeChanged(this, new RoutedEventArgs());
         ApplyPreviewZoom();
         UpdatePreviewInteractionLayers();
         UpdatePreviewPageHeader();
+        UpdatePrimaryActionButton();
     }
 
     private async void ChoosePdfButton_Click(object sender, RoutedEventArgs e)
@@ -292,6 +295,7 @@ public partial class MainWindow : Window
         if (e.Source == MainActionTabControl)
         {
             UpdatePreviewInteractionLayers();
+            UpdatePrimaryActionButton();
         }
     }
 
@@ -373,6 +377,22 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = "Đã xóa vùng crop.";
     }
 
+    private void PrimaryActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        switch (MainActionTabControl.SelectedIndex)
+        {
+            case 1:
+                CropPdfButton_Click(sender, e);
+                break;
+            case 2:
+                MergePdfButton_Click(sender, e);
+                break;
+            default:
+                SplitPdfButton_Click(sender, e);
+                break;
+        }
+    }
+
     private void SplitPdfButton_Click(object sender, RoutedEventArgs e)
     {
         if (!ValidateInputAndOutput())
@@ -438,6 +458,222 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = "Crop PDF thất bại.";
             WpfMessageBox.Show(this, ex.Message, "Lỗi crop PDF", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void AddMergeFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new WpfOpenFileDialog
+        {
+            Title = "Chọn các tệp PDF cần gộp",
+            Filter = "PDF files (*.pdf)|*.pdf",
+            CheckFileExists = true,
+            Multiselect = true
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var addedCount = 0;
+        foreach (var filePath in dialog.FileNames)
+        {
+            if (_mergeFiles.Any(item => string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            using var document = PdfReader.Open(filePath, PdfDocumentOpenMode.Import);
+            var fileInfo = new FileInfo(filePath);
+            _mergeFiles.Add(new MergePdfItem
+            {
+                Index = _mergeFiles.Count + 1,
+                FilePath = filePath,
+                PageCount = document.PageCount,
+                FileSizeBytes = fileInfo.Length
+            });
+            addedCount++;
+        }
+
+        if (string.IsNullOrWhiteSpace(_outputFolderPath) && _mergeFiles.Count > 0)
+        {
+            _outputFolderPath = Path.GetDirectoryName(_mergeFiles[0].FilePath);
+            OutputFolderTextBox.Text = _outputFolderPath;
+        }
+
+        if (MergeFilesListBox.SelectedIndex < 0 && _mergeFiles.Count > 0)
+        {
+            MergeFilesListBox.SelectedIndex = 0;
+        }
+
+        RefreshMergeFileIndexes();
+        StatusTextBlock.Text = addedCount > 0
+            ? $"Đã thêm {addedCount} file PDF vào danh sách gộp."
+            : "Các file đã có trong danh sách gộp.";
+    }
+
+    private void ClearMergeFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        _mergeFiles.Clear();
+        StatusTextBlock.Text = "Đã xóa danh sách file gộp.";
+    }
+
+    private void RemoveMergeFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (MergeFilesListBox.SelectedItem is not MergePdfItem item)
+        {
+            StatusTextBlock.Text = "Vui lòng chọn file cần xóa khỏi danh sách gộp.";
+            return;
+        }
+
+        var selectedIndex = MergeFilesListBox.SelectedIndex;
+        _mergeFiles.Remove(item);
+        RefreshMergeFileIndexes();
+        if (_mergeFiles.Count > 0)
+        {
+            MergeFilesListBox.SelectedIndex = Math.Min(selectedIndex, _mergeFiles.Count - 1);
+        }
+
+        StatusTextBlock.Text = "Đã xóa file khỏi danh sách gộp.";
+    }
+
+    private void MoveMergeFileUpButton_Click(object sender, RoutedEventArgs e)
+    {
+        MoveSelectedMergeFile(-1);
+    }
+
+    private void MoveMergeFileDownButton_Click(object sender, RoutedEventArgs e)
+    {
+        MoveSelectedMergeFile(1);
+    }
+
+    private void MergeFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (MainActionTabControl.SelectedIndex != 2 || MergeFilesListBox.SelectedItem is not MergePdfItem item)
+        {
+            return;
+        }
+
+        StatusTextBlock.Text = $"Đã chọn trong danh sách gộp: {item.FileName}";
+    }
+
+    private void MergePdfButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ValidateMergeInput())
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_outputFolderPath!);
+
+            var outputFile = GetUniqueOutputPath(Path.Combine(_outputFolderPath!, BuildMergeOutputFileName()));
+            using var outputDocument = new PdfDocument();
+            foreach (var item in _mergeFiles)
+            {
+                using var inputDocument = PdfReader.Open(item.FilePath, PdfDocumentOpenMode.Import);
+                for (var pageIndex = 0; pageIndex < inputDocument.PageCount; pageIndex++)
+                {
+                    outputDocument.AddPage(inputDocument.Pages[pageIndex]);
+                }
+            }
+
+            outputDocument.Save(outputFile);
+            StatusTextBlock.Text = $"Hoàn tất: đã gộp {_mergeFiles.Count} file vào {outputFile}.";
+            WpfMessageBox.Show(this, "Đã gộp xong các file PDF.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Gộp PDF thất bại.";
+            WpfMessageBox.Show(this, ex.Message, "Lỗi gộp PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private bool ValidateMergeInput()
+    {
+        if (_mergeFiles.Count < 2)
+        {
+            WpfMessageBox.Show(this, "Vui lòng chọn ít nhất 2 file PDF để gộp.", "Thiếu file PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        foreach (var item in _mergeFiles)
+        {
+            if (!File.Exists(item.FilePath))
+            {
+                WpfMessageBox.Show(this, $"Không tìm thấy file: {item.FilePath}", "Thiếu file PDF", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(_outputFolderPath))
+        {
+            WpfMessageBox.Show(this, "Vui lòng chọn thư mục xuất.", "Thiếu thư mục xuất", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        return true;
+    }
+
+    private string BuildMergeOutputFileName()
+    {
+        var rawName = MergeOutputNameTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(rawName))
+        {
+            rawName = "PDF_da_gop.pdf";
+        }
+
+        var extension = Path.GetExtension(rawName);
+        var nameWithoutExtension = string.IsNullOrWhiteSpace(extension)
+            ? rawName
+            : Path.GetFileNameWithoutExtension(rawName);
+        var safeName = SanitizeFileName(nameWithoutExtension);
+        return $"{safeName}.pdf";
+    }
+
+    private void MoveSelectedMergeFile(int direction)
+    {
+        var oldIndex = MergeFilesListBox.SelectedIndex;
+        if (oldIndex < 0)
+        {
+            StatusTextBlock.Text = "Vui lòng chọn file cần đổi thứ tự.";
+            return;
+        }
+
+        var newIndex = oldIndex + direction;
+        if (newIndex < 0 || newIndex >= _mergeFiles.Count)
+        {
+            return;
+        }
+
+        _mergeFiles.Move(oldIndex, newIndex);
+        RefreshMergeFileIndexes();
+        MergeFilesListBox.SelectedIndex = newIndex;
+        StatusTextBlock.Text = "Đã cập nhật thứ tự gộp PDF.";
+    }
+
+    private void RefreshMergeFileIndexes()
+    {
+        for (var i = 0; i < _mergeFiles.Count; i++)
+        {
+            _mergeFiles[i].Index = i + 1;
+        }
+    }
+
+    private void UpdatePrimaryActionButton()
+    {
+        if (PrimaryActionButton is null || MainActionTabControl is null)
+        {
+            return;
+        }
+
+        PrimaryActionButton.Content = MainActionTabControl.SelectedIndex switch
+        {
+            1 => "Crop PDF",
+            2 => "Gộp PDF",
+            _ => "Tách PDF"
+        };
     }
 
     private async Task LoadPdfPreviewPagesAsync(string filePath)
@@ -987,6 +1223,53 @@ public sealed class PageRangeItem : INotifyPropertyChanged
 }
 
 public readonly record struct PageRange(int From, int To);
+
+public sealed class MergePdfItem : INotifyPropertyChanged
+{
+    private int _index;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public int Index
+    {
+        get => _index;
+        set
+        {
+            if (_index == value)
+            {
+                return;
+            }
+
+            _index = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public required string FilePath { get; init; }
+
+    public required int PageCount { get; init; }
+
+    public required long FileSizeBytes { get; init; }
+
+    public string FileName => Path.GetFileName(FilePath);
+
+    public string Detail => $"{PageCount} trang - {FormatFileSize(FileSizeBytes)} - {FilePath}";
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024)
+        {
+            return $"{bytes / 1024d / 1024d:0.##} MB";
+        }
+
+        return $"{Math.Max(1, bytes / 1024d):0.##} KB";
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
 
 public readonly record struct CropArea(double Left, double Top, double Right, double Bottom)
 {
