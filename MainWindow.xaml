@@ -221,14 +221,14 @@
                                     ToolTip="Thu/phóng để vừa bề rộng khung xem"
                                     Style="{StaticResource SecondaryButton}"
                                     Click="FitWidthButton_Click" />
-                            <Button x:Name="SetSplitPointButton"
+                            <Button x:Name="PreviewLayoutButton"
                                     Grid.Column="11"
-                                    MinWidth="132"
+                                    MinWidth="122"
                                     Height="30"
-                                    Content="Đặt điểm tách"
+                                    Content="Đổi hiển thị"
+                                    ToolTip="Đổi giữa xem dọc và xem dạng lưới nhiều trang"
                                     Style="{StaticResource SecondaryButton}"
-                                    IsEnabled="False"
-                                    Click="SetSplitPointButton_Click" />
+                                    Click="PreviewLayoutButton_Click" />
                         </Grid>
                     </Border>
 
@@ -259,7 +259,27 @@
                                                            Foreground="#0F172A" />
                                                 <Image Source="{Binding Image}"
                                                        Stretch="None"
-                                                       HorizontalAlignment="Center" />
+                                                       HorizontalAlignment="Center">
+                                                    <Image.ToolTip>
+                                                        <ToolTip Placement="Mouse"
+                                                                 Background="White"
+                                                                 BorderBrush="{StaticResource BorderBrushSoft}"
+                                                                 BorderThickness="1"
+                                                                 Padding="10">
+                                                            <StackPanel>
+                                                                <TextBlock Text="{Binding PageLabel}"
+                                                                           Margin="0,0,0,8"
+                                                                           HorizontalAlignment="Center"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="#0F172A" />
+                                                                <Image Source="{Binding Image}"
+                                                                       Width="620"
+                                                                       MaxHeight="760"
+                                                                       Stretch="Uniform" />
+                                                            </StackPanel>
+                                                        </ToolTip>
+                                                    </Image.ToolTip>
+                                                </Image>
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>

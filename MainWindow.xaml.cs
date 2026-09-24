@@ -27,9 +27,10 @@ public partial class MainWindow : Window
 {
     private const double RenderedPreviewPageWidth = 900;
     private const double PreviewPageHorizontalChrome = 54;
-    private const double PreviewZoomMin = 0.35;
+    private const double PreviewZoomMin = 0.18;
     private const double PreviewZoomMax = 2.5;
     private const double PreviewZoomStep = 0.1;
+    private const double MultiPagePreviewZoom = 0.22;
 
     private readonly ObservableCollection<PageRangeItem> _ranges = [];
     private readonly ObservableCollection<PdfPagePreviewItem> _pagePreviews = [];
@@ -40,6 +41,7 @@ public partial class MainWindow : Window
     private int _currentPreviewPage = 1;
     private double _previewZoom = 1;
     private bool _isFitWidthZoom;
+    private bool _isMultiPagePreviewLayout;
     private bool _isSelectingCrop;
     private WpfPoint _cropStartPoint;
     private CropArea? _cropArea;
@@ -53,6 +55,7 @@ public partial class MainWindow : Window
         PdfPagesItemsControl.ItemsSource = _pagePreviews;
         MergeFilesListBox.ItemsSource = _mergeFiles;
         ApplyCropScopeChanged(this, new RoutedEventArgs());
+        ApplyPreviewLayout();
         ApplyPreviewZoom();
         UpdatePreviewInteractionLayers();
         UpdatePreviewPageHeader();
@@ -107,7 +110,15 @@ public partial class MainWindow : Window
             DocumentInfoTextBlock.Text = $"{_pageCount} trang";
             StatusTextBlock.Text = $"Đang render {_pageCount} trang PDF...";
             await LoadPdfPreviewPagesAsync(_inputFilePath);
-            FitPreviewToWidth(allowZoomIn: false);
+            if (_isMultiPagePreviewLayout)
+            {
+                _isFitWidthZoom = false;
+                SetPreviewZoom(MultiPagePreviewZoom);
+            }
+            else
+            {
+                FitPreviewToWidth(allowZoomIn: false);
+            }
             ScrollToPreviewPage(_currentPreviewPage);
             StatusTextBlock.Text = $"Đã chọn PDF có {_pageCount} trang.";
         }
@@ -222,6 +233,26 @@ public partial class MainWindow : Window
         FitPreviewToWidth(allowZoomIn: true);
     }
 
+    private void PreviewLayoutButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isMultiPagePreviewLayout = !_isMultiPagePreviewLayout;
+        ApplyPreviewLayout();
+
+        if (_isMultiPagePreviewLayout)
+        {
+            _isFitWidthZoom = false;
+            SetPreviewZoom(MultiPagePreviewZoom);
+            StatusTextBlock.Text = "Đã đổi sang chế độ xem lưới nhiều trang.";
+        }
+        else
+        {
+            FitPreviewToWidth(allowZoomIn: false);
+            StatusTextBlock.Text = "Đã đổi sang chế độ xem dọc từng trang.";
+        }
+
+        ScrollToPreviewPage(_currentPreviewPage);
+    }
+
     private async void PreviewPageTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
         await NavigateToPreviewPageFromTextBoxAsync();
@@ -254,11 +285,6 @@ public partial class MainWindow : Window
         _currentPreviewPage = Math.Clamp(page, 1, _pageCount);
         SyncCurrentPageFields();
         ScrollToPreviewPage(_currentPreviewPage);
-    }
-
-    private void SetSplitPointButton_Click(object sender, RoutedEventArgs e)
-    {
-        SetCurrentPageAsSplitPoint();
     }
 
     private void SetCurrentPageAsSplitPoint()
@@ -776,6 +802,12 @@ public partial class MainWindow : Window
 
     private void UpdateCurrentPageFromVisiblePreview()
     {
+        if (_isMultiPagePreviewLayout)
+        {
+            UpdateCurrentPageFromMultiPagePreview();
+            return;
+        }
+
         var viewportCenterY = PdfPagesScrollViewer.ViewportHeight / 2;
         var bestPage = 0;
         var bestDistance = double.MaxValue;
@@ -797,6 +829,49 @@ public partial class MainWindow : Window
             }
 
             var distance = Math.Abs((bounds.Top + bounds.Bottom) / 2 - viewportCenterY);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestPage = _pagePreviews[index].PageNumber;
+            }
+        }
+
+        if (bestPage > 0 && bestPage != _currentPreviewPage)
+        {
+            _currentPreviewPage = bestPage;
+            SyncCurrentPageFields();
+        }
+    }
+
+    private void UpdateCurrentPageFromMultiPagePreview()
+    {
+        var viewportCenterX = PdfPagesScrollViewer.ViewportWidth / 2;
+        var viewportCenterY = PdfPagesScrollViewer.ViewportHeight / 2;
+        var bestPage = 0;
+        var bestDistance = double.MaxValue;
+
+        for (var index = 0; index < _pagePreviews.Count; index++)
+        {
+            if (PdfPagesItemsControl.ItemContainerGenerator.ContainerFromIndex(index) is not FrameworkElement container)
+            {
+                continue;
+            }
+
+            var bounds = container
+                .TransformToAncestor(PdfPagesScrollViewer)
+                .TransformBounds(new Rect(0, 0, container.ActualWidth, container.ActualHeight));
+
+            if (bounds.Right < 0 ||
+                bounds.Left > PdfPagesScrollViewer.ViewportWidth ||
+                bounds.Bottom < 0 ||
+                bounds.Top > PdfPagesScrollViewer.ViewportHeight)
+            {
+                continue;
+            }
+
+            var centerX = (bounds.Left + bounds.Right) / 2;
+            var centerY = (bounds.Top + bounds.Bottom) / 2;
+            var distance = Math.Abs(centerX - viewportCenterX) + Math.Abs(centerY - viewportCenterY);
             if (distance < bestDistance)
             {
                 bestDistance = distance;
@@ -1096,6 +1171,41 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ApplyPreviewLayout()
+    {
+        if (PdfPagesItemsControl is null)
+        {
+            return;
+        }
+
+        var panelFactory = _isMultiPagePreviewLayout
+            ? new FrameworkElementFactory(typeof(WrapPanel))
+            : new FrameworkElementFactory(typeof(StackPanel));
+        if (_isMultiPagePreviewLayout)
+        {
+            panelFactory.SetValue(WrapPanel.OrientationProperty, System.Windows.Controls.Orientation.Horizontal);
+        }
+        else
+        {
+            panelFactory.SetValue(StackPanel.OrientationProperty, System.Windows.Controls.Orientation.Vertical);
+        }
+        PdfPagesItemsControl.ItemsPanel = new ItemsPanelTemplate(panelFactory);
+
+        if (PdfPagesScrollViewer is not null)
+        {
+            PdfPagesScrollViewer.HorizontalScrollBarVisibility = _isMultiPagePreviewLayout
+                ? ScrollBarVisibility.Disabled
+                : ScrollBarVisibility.Auto;
+        }
+
+        if (PreviewLayoutButton is not null)
+        {
+            PreviewLayoutButton.ToolTip = _isMultiPagePreviewLayout
+                ? "Đang xem dạng lưới nhiều trang. Bấm để quay lại xem dọc."
+                : "Đang xem dọc từng trang. Bấm để xem dạng lưới nhiều trang.";
+        }
+    }
+
     private void RefreshRangeLabels()
     {
         for (var i = 0; i < _ranges.Count; i++)
@@ -1106,14 +1216,12 @@ public partial class MainWindow : Window
 
     private void UpdatePreviewInteractionLayers()
     {
-        if (CropOverlayCanvas is null || SetSplitPointButton is null || MainActionTabControl is null)
+        if (CropOverlayCanvas is null || MainActionTabControl is null)
         {
             return;
         }
 
         CropOverlayCanvas.Visibility = MainActionTabControl.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
-        SetSplitPointButton.IsEnabled =
-            _pageCount > 0 && MainActionTabControl.SelectedIndex == 0 && CustomModeRadio.IsChecked == true;
     }
 
     private void ClearCropSelectionVisual()
