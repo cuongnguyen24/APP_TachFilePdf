@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Web.WebView2.Core;
 using Windows.Storage;
 using Windows.Storage.Streams;
 using PdfSharp.Drawing;
@@ -19,6 +20,9 @@ using WinPdfDocument = Windows.Data.Pdf.PdfDocument;
 using WinPdfPageRenderOptions = Windows.Data.Pdf.PdfPageRenderOptions;
 using WpfMessageBox = System.Windows.MessageBox;
 using WpfOpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using WpfBrushes = System.Windows.Media.Brushes;
+using WpfColor = System.Windows.Media.Color;
+using WpfPen = System.Windows.Media.Pen;
 using WpfPoint = System.Windows.Point;
 using WinForms = System.Windows.Forms;
 
@@ -44,7 +48,8 @@ public partial class MainWindow : Window
     private int _currentPreviewPage = 1;
     private double _previewZoom = 1;
     private bool _isFitWidthZoom;
-    private bool _isMultiPagePreviewLayout;
+    private PreviewLayoutMode _previewLayoutMode = PreviewLayoutMode.Vertical;
+    private CoreWebView2Environment? _webViewEnvironment;
     private bool _isSelectingCrop;
     private WpfPoint _cropStartPoint;
     private CropArea? _cropArea;
@@ -121,15 +126,7 @@ public partial class MainWindow : Window
             DocumentInfoTextBlock.Text = $"{_pageCount} trang";
             StatusTextBlock.Text = $"Đang render {_pageCount} trang PDF...";
             await LoadPdfPreviewPagesAsync(_inputFilePath);
-            if (_isMultiPagePreviewLayout)
-            {
-                _isFitWidthZoom = false;
-                SetPreviewZoom(MultiPagePreviewZoom);
-            }
-            else
-            {
-                FitPreviewToWidth(allowZoomIn: false);
-            }
+            ApplyZoomForCurrentPreviewLayout();
             ScrollToPreviewPage(_currentPreviewPage);
             StatusTextBlock.Text = $"Đã chọn PDF có {_pageCount} trang.";
         }
@@ -249,24 +246,49 @@ public partial class MainWindow : Window
         FitPreviewToWidth(allowZoomIn: true);
     }
 
-    private void PreviewLayoutButton_Click(object sender, RoutedEventArgs e)
+    private async void PreviewLayoutButton_Click(object sender, RoutedEventArgs e)
     {
-        _isMultiPagePreviewLayout = !_isMultiPagePreviewLayout;
+        var previousLayoutMode = _previewLayoutMode;
+        _previewLayoutMode = _previewLayoutMode switch
+        {
+            PreviewLayoutMode.Vertical => PreviewLayoutMode.Grid,
+            PreviewLayoutMode.Grid => PreviewLayoutMode.TextSelection,
+            _ => PreviewLayoutMode.Vertical
+        };
+
         ApplyPreviewLayout();
 
-        if (_isMultiPagePreviewLayout)
+        if (_previewLayoutMode == PreviewLayoutMode.TextSelection && !string.IsNullOrWhiteSpace(_inputFilePath))
         {
-            _isFitWidthZoom = false;
-            SetPreviewZoom(MultiPagePreviewZoom);
-            StatusTextBlock.Text = "Đã đổi sang chế độ xem lưới nhiều trang.";
+            if (!await NavigateTextSelectionPreviewAsync(GetActivePdfPath(), _currentPreviewPage))
+            {
+                ApplyZoomForCurrentPreviewLayout();
+                return;
+            }
         }
-        else
+        else if (previousLayoutMode == PreviewLayoutMode.TextSelection && !string.IsNullOrWhiteSpace(_inputFilePath))
         {
-            FitPreviewToWidth(allowZoomIn: false);
-            StatusTextBlock.Text = "Đã đổi sang chế độ xem dọc từng trang.";
+            await LoadPdfPreviewPagesAsync(GetActivePdfPath());
         }
 
-        ScrollToPreviewPage(_currentPreviewPage);
+        if (previousLayoutMode == PreviewLayoutMode.Compatibility && !string.IsNullOrWhiteSpace(_inputFilePath))
+        {
+            await LoadPdfPreviewPagesAsync(GetActivePdfPath());
+        }
+
+        ApplyZoomForCurrentPreviewLayout();
+        StatusTextBlock.Text = _previewLayoutMode switch
+        {
+            PreviewLayoutMode.Grid => "Đã đổi sang chế độ xem lưới nhiều trang.",
+            PreviewLayoutMode.TextSelection => "Đã đổi sang chế độ chọn/copy text bằng WebView2.",
+            PreviewLayoutMode.Compatibility => "Renderer ảnh không mở được file này. Đang dùng chế độ tương thích PDF/A.",
+            _ => "Đã đổi sang chế độ xem dọc từng trang."
+        };
+
+        if (_previewLayoutMode != PreviewLayoutMode.TextSelection)
+        {
+            ScrollToPreviewPage(_currentPreviewPage);
+        }
     }
 
     private async void PreviewPageTextBox_LostFocus(object sender, RoutedEventArgs e)
@@ -727,6 +749,10 @@ public partial class MainWindow : Window
         PreviewToolbarPanel.IsEnabled = !isMergeTab;
         PreviewToolbarPanel.Opacity = isMergeTab ? 0.42 : 1;
         PdfPagesScrollViewer.IsEnabled = !isMergeTab;
+        if (TextSelectionPdfWebView is not null)
+        {
+            TextSelectionPdfWebView.IsEnabled = !isMergeTab;
+        }
         DocumentPickerPanel.IsEnabled = !isMergeTab;
         DocumentPickerPanel.Opacity = isMergeTab ? 0.46 : 1;
 
@@ -757,17 +783,57 @@ public partial class MainWindow : Window
     {
         _pagePreviews.Clear();
 
-        var storageFile = await StorageFile.GetFileFromPathAsync(filePath);
-        var pdfDocument = await WinPdfDocument.LoadFromFileAsync(storageFile);
-        for (uint pageIndex = 0; pageIndex < pdfDocument.PageCount; pageIndex++)
+        if (_previewLayoutMode == PreviewLayoutMode.Compatibility)
         {
-            using var page = pdfDocument.GetPage(pageIndex);
-            var image = await RenderPdfPageAsync(page);
-            _pagePreviews.Add(new PdfPagePreviewItem((int)pageIndex + 1, image));
+            await LoadCompatibilityPreviewPagesAsync(filePath);
+            return;
+        }
 
-            if (pageIndex % 5 == 0 || pageIndex + 1 == pdfDocument.PageCount)
+        if (_previewLayoutMode == PreviewLayoutMode.TextSelection)
+        {
+            await NavigateTextSelectionPreviewAsync(filePath, _currentPreviewPage);
+            return;
+        }
+
+        try
+        {
+            var storageFile = await StorageFile.GetFileFromPathAsync(filePath);
+            var pdfDocument = await WinPdfDocument.LoadFromFileAsync(storageFile);
+            for (uint pageIndex = 0; pageIndex < pdfDocument.PageCount; pageIndex++)
             {
-                StatusTextBlock.Text = $"Đang render trang {pageIndex + 1}/{pdfDocument.PageCount}...";
+                using var page = pdfDocument.GetPage(pageIndex);
+                var image = await RenderPdfPageAsync(page);
+                _pagePreviews.Add(new PdfPagePreviewItem((int)pageIndex + 1, image));
+
+                if (pageIndex % 5 == 0 || pageIndex + 1 == pdfDocument.PageCount)
+                {
+                    StatusTextBlock.Text = $"Đang render trang {pageIndex + 1}/{pdfDocument.PageCount}...";
+                    await Task.Yield();
+                }
+            }
+        }
+        catch when (_pageCount > 0)
+        {
+            _previewLayoutMode = PreviewLayoutMode.Compatibility;
+            ApplyPreviewLayout();
+            await LoadCompatibilityPreviewPagesAsync(filePath);
+            StatusTextBlock.Text = "Renderer ảnh không mở được file này. Đã chuyển sang chế độ tương thích PDF/A.";
+        }
+    }
+
+    private async Task LoadCompatibilityPreviewPagesAsync(string filePath)
+    {
+        _pagePreviews.Clear();
+        using var document = PdfReader.Open(filePath, PdfDocumentOpenMode.Import);
+        for (var pageIndex = 0; pageIndex < document.PageCount; pageIndex++)
+        {
+            var page = document.Pages[pageIndex];
+            var image = RenderCompatibilityPagePreview(page, pageIndex + 1, document.PageCount);
+            _pagePreviews.Add(new PdfPagePreviewItem(pageIndex + 1, image, true));
+
+            if (pageIndex % 20 == 0 || pageIndex + 1 == document.PageCount)
+            {
+                StatusTextBlock.Text = $"Đang tạo view tương thích trang {pageIndex + 1}/{document.PageCount}...";
                 await Task.Yield();
             }
         }
@@ -799,6 +865,106 @@ public partial class MainWindow : Window
         bitmap.EndInit();
         bitmap.Freeze();
         return bitmap;
+    }
+
+    private async Task<bool> NavigateTextSelectionPreviewAsync(string filePath, int pageNumber)
+    {
+        if (TextSelectionPdfWebView is null || !File.Exists(filePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            await TextSelectionPdfWebView.EnsureCoreWebView2Async(await GetWebViewEnvironmentAsync());
+            TextSelectionPdfWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            TextSelectionPdfWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
+
+            var page = Math.Clamp(pageNumber, 1, Math.Max(_pageCount, 1));
+            TextSelectionPdfWebView.CoreWebView2.Navigate($"{new Uri(filePath).AbsoluteUri}#page={page}");
+            return true;
+        }
+        catch (Exception ex) when (ex is WebView2RuntimeNotFoundException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            _previewLayoutMode = PreviewLayoutMode.Vertical;
+            ApplyPreviewLayout();
+            await LoadPdfPreviewPagesAsync(filePath);
+            StatusTextBlock.Text = $"Không mở được chế độ chọn/copy text ({ex.Message}). Đã quay lại chế độ xem dọc.";
+            return false;
+        }
+    }
+
+    private async Task<CoreWebView2Environment> GetWebViewEnvironmentAsync()
+    {
+        if (_webViewEnvironment is not null)
+        {
+            return _webViewEnvironment;
+        }
+
+        var userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ToolAXE",
+            "TachFilePdf",
+            "WebView2");
+        Directory.CreateDirectory(userDataFolder);
+        _webViewEnvironment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+        return _webViewEnvironment;
+    }
+
+    private static ImageSource RenderCompatibilityPagePreview(PdfPage page, int pageNumber, int pageCount)
+    {
+        const int width = 620;
+        const int height = 860;
+        var pageWidthPoints = Math.Max(1, page.MediaBox.Width);
+        var pageHeightPoints = Math.Max(1, page.MediaBox.Height);
+        var pageWidthInches = pageWidthPoints / 72d;
+        var pageHeightInches = pageHeightPoints / 72d;
+        var pageWidthMm = pageWidthInches * 25.4;
+        var pageHeightMm = pageHeightInches * 25.4;
+
+        var visual = new DrawingVisual();
+        using (var context = visual.RenderOpen())
+        {
+            context.DrawRectangle(WpfBrushes.White, new WpfPen(new SolidColorBrush(WpfColor.FromRgb(221, 226, 234)), 2), new Rect(0, 0, width, height));
+            context.DrawRectangle(new SolidColorBrush(WpfColor.FromRgb(248, 250, 252)), null, new Rect(28, 28, width - 56, height - 56));
+            DrawCenteredText(context, $"Trang {pageNumber}/{pageCount}", 34, 28, width - 56, 28, WpfBrushes.Black);
+            DrawCenteredText(context, "Chế độ tương thích PDF/A", 28, 60, width - 120, 28, new SolidColorBrush(WpfColor.FromRgb(239, 35, 41)));
+            DrawCenteredText(context, "Không dùng renderer ảnh của Windows", 22, 92, width - 120, 24, new SolidColorBrush(WpfColor.FromRgb(100, 116, 139)));
+
+            var infoTop = 190;
+            DrawCenteredText(context, $"{pageWidthInches:0.##}\" x {pageHeightInches:0.##}\"", 42, infoTop, width - 80, 48, WpfBrushes.Black);
+            DrawCenteredText(context, $"{pageWidthMm:0.#} x {pageHeightMm:0.#} mm", 28, infoTop + 58, width - 80, 34, new SolidColorBrush(WpfColor.FromRgb(51, 65, 85)));
+            DrawCenteredText(context, $"Rotation: {page.Rotate}°", 24, infoTop + 110, width - 80, 30, new SolidColorBrush(WpfColor.FromRgb(100, 116, 139)));
+
+            context.DrawRectangle(null, new WpfPen(new SolidColorBrush(WpfColor.FromRgb(239, 35, 41)), 2), new Rect(98, 410, width - 196, 250));
+            DrawCenteredText(context, "Right-click để chỉnh sửa,", 26, 475, width - 120, 34, new SolidColorBrush(WpfColor.FromRgb(15, 23, 42)));
+            DrawCenteredText(context, "kiểm tra DPI/PDF-A,", 26, 512, width - 120, 34, new SolidColorBrush(WpfColor.FromRgb(15, 23, 42)));
+            DrawCenteredText(context, "hoặc tách theo khoảng.", 26, 549, width - 120, 34, new SolidColorBrush(WpfColor.FromRgb(15, 23, 42)));
+        }
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    private static void DrawCenteredText(DrawingContext context, string text, double fontSize, double top, double width, double height, System.Windows.Media.Brush brush)
+    {
+        var formattedText = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            System.Windows.FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            fontSize,
+            brush,
+            1.0)
+        {
+            TextAlignment = TextAlignment.Center,
+            MaxTextWidth = width,
+            MaxTextHeight = height
+        };
+
+        context.DrawText(formattedText, new WpfPoint((620 - width) / 2, top));
     }
 
     private void PreviewPageCard_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -849,6 +1015,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private void CheckPdfStandardMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var result = AnalyzePdfStandard(GetActivePdfPath());
+            StatusTextBlock.Text = result.StatusText;
+            WpfMessageBox.Show(this, result.Message, "Kiểm tra chuẩn PDF/A/PDF", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Kiểm tra chuẩn PDF thất bại.";
+            WpfMessageBox.Show(this, ex.Message, "Lỗi kiểm tra chuẩn PDF", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private async void DeletePageMenuItem_Click(object sender, RoutedEventArgs e)
     {
         await EditPreviewPageAsync(sender, PageEditAction.Delete);
@@ -893,7 +1074,7 @@ public partial class MainWindow : Window
 
     private void PdfPagesScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        if (_pageCount <= 0 || PreviewPageTextBox.IsKeyboardFocusWithin)
+        if (_pageCount <= 0 || PreviewPageTextBox.IsKeyboardFocusWithin || _previewLayoutMode == PreviewLayoutMode.TextSelection)
         {
             return;
         }
@@ -911,6 +1092,12 @@ public partial class MainWindow : Window
 
     private void ScrollToPreviewPage(int page)
     {
+        if (_previewLayoutMode == PreviewLayoutMode.TextSelection)
+        {
+            _ = NavigateTextSelectionPreviewAsync(GetActivePdfPath(), page);
+            return;
+        }
+
         if (_pagePreviews.Count == 0)
         {
             return;
@@ -926,7 +1113,7 @@ public partial class MainWindow : Window
 
     private void UpdateCurrentPageFromVisiblePreview()
     {
-        if (_isMultiPagePreviewLayout)
+        if (_previewLayoutMode != PreviewLayoutMode.Vertical)
         {
             UpdateCurrentPageFromMultiPagePreview();
             return;
@@ -1084,16 +1271,11 @@ public partial class MainWindow : Window
         UpdatePreviewPageHeader();
         PreviewPlaceholderPanel.Visibility = Visibility.Collapsed;
         _pagePreviews.Clear();
-        StatusTextBlock.Text = $"Đang render {_pageCount} trang PDF...";
+        StatusTextBlock.Text = _previewLayoutMode == PreviewLayoutMode.TextSelection
+            ? "Đang mở PDF ở chế độ chọn/copy text..."
+            : $"Đang render {_pageCount} trang PDF...";
         await LoadPdfPreviewPagesAsync(activePath);
-        if (_isMultiPagePreviewLayout)
-        {
-            SetPreviewZoom(MultiPagePreviewZoom);
-        }
-        else
-        {
-            FitPreviewToWidth(allowZoomIn: false);
-        }
+        ApplyZoomForCurrentPreviewLayout();
 
         ScrollToPreviewPage(_currentPreviewPage);
         DocumentInfoTextBlock.Text = $"{_pageCount} trang";
@@ -1306,6 +1488,99 @@ public partial class MainWindow : Window
             "Ghi chú: kết quả này ước tính theo kích thước trang. Với PDF scan toàn trang thường rất sát; PDF nhiều ảnh nhỏ có thể cần kiểm tra bằng tool PDF.js chuyên sâu.";
 
         return new PageDpiResult($"Trang {pageNumber}: khoảng {Math.Round(mainDpi)} DPI - {conclusion}.", messageText);
+    }
+
+    private static PdfStandardResult AnalyzePdfStandard(string filePath)
+    {
+        using var document = PdfReader.Open(filePath, PdfDocumentOpenMode.Import);
+        var headerVersion = ReadPdfHeaderVersion(filePath);
+        var catalogVersion = document.Internals.Catalog.Elements.GetName("/Version");
+        var effectiveVersion = string.IsNullOrWhiteSpace(catalogVersion)
+            ? headerVersion
+            : catalogVersion.TrimStart('/');
+        var metadata = ReadDocumentMetadata(document);
+        var pdfaPart = FindXmlTagValue(metadata, "pdfaid:part") ?? FindXmlAttributeValue(metadata, "pdfaid:part");
+        var pdfaConformance = FindXmlTagValue(metadata, "pdfaid:conformance") ?? FindXmlAttributeValue(metadata, "pdfaid:conformance");
+        var pdfaRev = FindXmlTagValue(metadata, "pdfaid:rev") ?? FindXmlAttributeValue(metadata, "pdfaid:rev");
+        var hasPdfA = !string.IsNullOrWhiteSpace(pdfaPart);
+        var pdfLabel = hasPdfA
+            ? BuildPdfALabel(pdfaPart!, pdfaConformance, pdfaRev)
+            : "Không thấy khai báo PDF/A trong XMP metadata";
+
+        var message =
+            $"File: {Path.GetFileName(filePath)}\n" +
+            $"Số trang: {document.PageCount}\n" +
+            $"PDF version: {effectiveVersion}\n" +
+            $"PDF/A: {pdfLabel}\n\n" +
+            $"Metadata XMP: {(string.IsNullOrWhiteSpace(metadata) ? "Không tìm thấy" : "Có")}\n\n" +
+            "Lưu ý: kiểm tra này phát hiện khai báo chuẩn trong metadata và thông tin PDF cơ bản. Nó không thay thế kiểm định conformance đầy đủ bằng validator chuyên dụng.";
+
+        var status = hasPdfA
+            ? $"Phát hiện {BuildPdfALabel(pdfaPart!, pdfaConformance, pdfaRev)}."
+            : "Không thấy khai báo PDF/A trong metadata.";
+        return new PdfStandardResult(status, message);
+    }
+
+    private static string BuildPdfALabel(string part, string? conformance, string? rev)
+    {
+        var label = $"PDF/A-{part}";
+        if (!string.IsNullOrWhiteSpace(conformance))
+        {
+            label += conformance.Trim().ToLowerInvariant();
+        }
+
+        if (!string.IsNullOrWhiteSpace(rev))
+        {
+            label += $" rev {rev.Trim()}";
+        }
+
+        return label;
+    }
+
+    private static string ReadPdfHeaderVersion(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        Span<byte> header = stackalloc byte[32];
+        var read = stream.Read(header);
+        var text = System.Text.Encoding.ASCII.GetString(header[..read]);
+        var match = Regex.Match(text, @"%PDF-(\d\.\d)");
+        return match.Success ? match.Groups[1].Value : "Không xác định";
+    }
+
+    private static string? ReadDocumentMetadata(PdfDocument document)
+    {
+        if (document.Internals.Catalog.Elements["/Metadata"] is not PdfReference reference ||
+            reference.Value is not PdfDictionary metadataDictionary ||
+            metadataDictionary.Stream?.Value is null)
+        {
+            return null;
+        }
+
+        return System.Text.Encoding.UTF8.GetString(metadataDictionary.Stream.Value);
+    }
+
+    private static string? FindXmlTagValue(string? xml, string tagName)
+    {
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            return null;
+        }
+
+        var escaped = Regex.Escape(tagName);
+        var match = Regex.Match(xml, $@"<{escaped}[^>]*>(.*?)</{escaped}>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        return match.Success ? Regex.Replace(match.Groups[1].Value, @"\s+", " ").Trim() : null;
+    }
+
+    private static string? FindXmlAttributeValue(string? xml, string attributeName)
+    {
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            return null;
+        }
+
+        var escaped = Regex.Escape(attributeName);
+        var match = Regex.Match(xml, $@"{escaped}\s*=\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 
     private static void CollectPageImages(PdfDictionary? resources, List<PdfImageInfo> images, HashSet<string> visited)
@@ -1762,6 +2037,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ApplyZoomForCurrentPreviewLayout()
+    {
+        if (_previewLayoutMode == PreviewLayoutMode.TextSelection)
+        {
+            _isFitWidthZoom = false;
+            SetPreviewZoom(1);
+            return;
+        }
+
+        if (_previewLayoutMode == PreviewLayoutMode.Vertical)
+        {
+            FitPreviewToWidth(allowZoomIn: false);
+            return;
+        }
+
+        _isFitWidthZoom = false;
+        SetPreviewZoom(_previewLayoutMode == PreviewLayoutMode.Compatibility ? 0.35 : MultiPagePreviewZoom);
+    }
+
     private void ApplyPreviewLayout()
     {
         if (PdfPagesItemsControl is null)
@@ -1769,10 +2063,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        var panelFactory = _isMultiPagePreviewLayout
+        var isTextSelectionLayout = _previewLayoutMode == PreviewLayoutMode.TextSelection;
+        if (PdfPagesScrollViewer is not null)
+        {
+            PdfPagesScrollViewer.Visibility = isTextSelectionLayout ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        if (TextSelectionPdfWebView is not null)
+        {
+            TextSelectionPdfWebView.Visibility = isTextSelectionLayout ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        var usesWrappingLayout = _previewLayoutMode is not PreviewLayoutMode.Vertical and not PreviewLayoutMode.TextSelection;
+        var panelFactory = usesWrappingLayout
             ? new FrameworkElementFactory(typeof(WrapPanel))
             : new FrameworkElementFactory(typeof(StackPanel));
-        if (_isMultiPagePreviewLayout)
+        if (usesWrappingLayout)
         {
             panelFactory.SetValue(WrapPanel.OrientationProperty, System.Windows.Controls.Orientation.Horizontal);
         }
@@ -1784,16 +2090,20 @@ public partial class MainWindow : Window
 
         if (PdfPagesScrollViewer is not null)
         {
-            PdfPagesScrollViewer.HorizontalScrollBarVisibility = _isMultiPagePreviewLayout
+            PdfPagesScrollViewer.HorizontalScrollBarVisibility = usesWrappingLayout
                 ? ScrollBarVisibility.Disabled
                 : ScrollBarVisibility.Auto;
         }
 
         if (PreviewLayoutButton is not null)
         {
-            PreviewLayoutButton.ToolTip = _isMultiPagePreviewLayout
-                ? "Đang xem dạng lưới nhiều trang. Bấm để quay lại xem dọc."
-                : "Đang xem dọc từng trang. Bấm để xem dạng lưới nhiều trang.";
+            PreviewLayoutButton.ToolTip = _previewLayoutMode switch
+            {
+                PreviewLayoutMode.Grid => "Đang xem dạng lưới nhiều trang. Bấm để chuyển sang chế độ chọn/copy text.",
+                PreviewLayoutMode.TextSelection => "Đang xem bằng WebView2 để chọn/copy text. Bấm để quay lại xem dọc.",
+                PreviewLayoutMode.Compatibility => "Đang xem fallback tương thích PDF/A. Bấm để thử lại preview thật.",
+                _ => "Đang xem dọc từng trang. Bấm để xem dạng lưới nhiều trang."
+            };
         }
     }
 
@@ -1812,7 +2122,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        CropOverlayCanvas.Visibility = MainActionTabControl.SelectedItem == CropTabItem
+        CropOverlayCanvas.Visibility = MainActionTabControl.SelectedItem == CropTabItem &&
+                                       _previewLayoutMode != PreviewLayoutMode.TextSelection
             ? Visibility.Visible
             : Visibility.Collapsed;
     }
@@ -1856,7 +2167,7 @@ public partial class MainWindow : Window
     }
 }
 
-public sealed record PdfPagePreviewItem(int PageNumber, ImageSource Image)
+public sealed record PdfPagePreviewItem(int PageNumber, ImageSource Image, bool IsCompatibilityView = false)
 {
     public string PageLabel => $"Trang {PageNumber}";
 }
@@ -1930,6 +2241,16 @@ public readonly record struct PageCopyPlan(int SourceIndex, int RotateDelta = 0)
 public readonly record struct PdfImageInfo(int PixelWidth, int PixelHeight);
 
 public readonly record struct PageDpiResult(string StatusText, string Message);
+
+public readonly record struct PdfStandardResult(string StatusText, string Message);
+
+public enum PreviewLayoutMode
+{
+    Vertical,
+    Grid,
+    TextSelection,
+    Compatibility
+}
 
 public enum PageEditAction
 {
