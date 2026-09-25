@@ -323,6 +323,19 @@
                                        StrokeThickness="2"
                                        Fill="#33EF2329" />
                         </Canvas>
+                        <Canvas x:Name="EditOverlayCanvas"
+                                Background="#01000000"
+                                Visibility="Collapsed"
+                                MouseLeftButtonDown="EditOverlayCanvas_MouseLeftButtonDown"
+                                MouseMove="EditOverlayCanvas_MouseMove"
+                                MouseLeftButtonUp="EditOverlayCanvas_MouseLeftButtonUp">
+                            <Rectangle x:Name="EditSelectionRectangle"
+                                       Visibility="Collapsed"
+                                       Stroke="#0F172A"
+                                       StrokeThickness="2"
+                                       StrokeDashArray="4 2"
+                                       Fill="#44EF2329" />
+                        </Canvas>
                         <StackPanel x:Name="PreviewPlaceholderPanel"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
@@ -574,6 +587,124 @@
                                             Click="CropPdfButton_Click" />
                                 </Grid>
                             </StackPanel>
+                        </TabItem>
+
+                        <TabItem x:Name="EditTabItem" Header="Chỉnh sửa">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="18">
+                                    <TextBlock Text="Bù viền / bù màu"
+                                               FontSize="16"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Margin="0,8,0,0"
+                                               Text="Kéo chuột trái trên preview để phủ màu lên vùng scan bị đen, viền lem hoặc nền cần tô lại."
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource MutedTextBrush}" />
+
+                                    <Border Margin="0,14,0,0"
+                                            Padding="12"
+                                            Background="#F8FAFC"
+                                            BorderBrush="{StaticResource BorderBrushSoft}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border x:Name="CoverColorPreviewBorder"
+                                                    Width="42"
+                                                    Height="42"
+                                                    CornerRadius="21"
+                                                    Background="#FFF7E9"
+                                                    BorderBrush="#CBD5E1"
+                                                    BorderThickness="1" />
+                                            <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                                <TextBlock Text="Màu phủ" FontWeight="SemiBold" />
+                                                <TextBlock x:Name="CoverColorTextBlock"
+                                                           Margin="0,4,0,0"
+                                                           Text="#FFF7E9"
+                                                           Foreground="{StaticResource MutedTextBrush}" />
+                                            </StackPanel>
+                                            <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,12,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="10" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Button Content="Chọn màu"
+                                                        Style="{StaticResource SecondaryButton}"
+                                                        Click="ChooseCoverColorButton_Click" />
+                                                <Button Grid.Column="2"
+                                                        Content="Bút lấy màu"
+                                                        Style="{StaticResource SecondaryButton}"
+                                                        Click="PickCoverColorButton_Click" />
+                                            </Grid>
+                                        </Grid>
+                                    </Border>
+
+                                    <Grid Margin="0,14,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Độ đậm màu" FontWeight="SemiBold" />
+                                            <Slider x:Name="CoverOpacitySlider"
+                                                    Margin="0,8,0,0"
+                                                    Minimum="0"
+                                                    Maximum="100"
+                                                    Value="100"
+                                                    TickFrequency="5" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Áp dụng" FontWeight="SemiBold" />
+                                            <CheckBox x:Name="ApplyCoverAllPagesCheckBox"
+                                                      Margin="0,10,0,0"
+                                                      Content="Cho tất cả trang" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Border Margin="0,14,0,0"
+                                            Padding="12"
+                                            Background="#F8FAFC"
+                                            BorderBrush="{StaticResource BorderBrushSoft}"
+                                            BorderThickness="1"
+                                            CornerRadius="6">
+                                        <StackPanel>
+                                            <TextBlock Text="Các vùng đã thêm" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="CoverAreasInfoTextBlock"
+                                                       Margin="0,6,0,0"
+                                                       Text="Chưa có vùng bù màu"
+                                                       Foreground="{StaticResource MutedTextBrush}" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Grid Margin="0,16,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="10" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button Content="Hoàn tác vùng cuối"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="UndoCoverAreaButton_Click" />
+                                        <Button Grid.Column="2"
+                                                Content="Xóa tất cả vùng"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="ClearCoverAreasButton_Click" />
+                                    </Grid>
+
+                                    <TextBlock Margin="0,14,0,0"
+                                               Text="Dùng nút Lưu PDF đã bù màu ở thanh dưới để xuất file."
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource MutedTextBrush}" />
+                                </StackPanel>
+                            </ScrollViewer>
                         </TabItem>
 
                         <TabItem x:Name="MergeTabItem" Header="Gộp PDF">

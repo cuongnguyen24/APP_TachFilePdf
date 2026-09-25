@@ -53,6 +53,11 @@ public partial class MainWindow : Window
     private bool _isSelectingCrop;
     private WpfPoint _cropStartPoint;
     private CropArea? _cropArea;
+    private readonly List<CoverPatch> _coverPatches = [];
+    private bool _isSelectingCoverArea;
+    private bool _isPickingCoverColor;
+    private WpfPoint _coverStartPoint;
+    private WpfColor _coverColor = WpfColor.FromRgb(255, 247, 233);
 
     public MainWindow()
     {
@@ -112,6 +117,7 @@ public partial class MainWindow : Window
             PreviewPageTextBox.Text = "1";
             CropPageTextBox.Text = "1";
             ClearCropSelectionVisual();
+            ClearCoverAreasVisual();
             _pagePreviews.Clear();
             PreviewPlaceholderPanel.Visibility = Visibility.Collapsed;
             UpdatePreviewPageHeader();
@@ -442,11 +448,203 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = "Đã xóa vùng crop.";
     }
 
+    private void EditOverlayCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_pageCount <= 0)
+        {
+            return;
+        }
+
+        if (_isPickingCoverColor)
+        {
+            PickCoverColorAtMouse(e);
+            e.Handled = true;
+            return;
+        }
+
+        var point = e.GetPosition(EditOverlayCanvas);
+        var pageBounds = GetCurrentPageImageBoundsOnOverlay(EditOverlayCanvas);
+        if (pageBounds.IsEmpty || !pageBounds.Contains(point))
+        {
+            StatusTextBlock.Text = "Hãy kéo trong vùng trang PDF để thêm vùng bù màu.";
+            return;
+        }
+
+        _isSelectingCoverArea = true;
+        _coverStartPoint = ClampPointToRect(point, pageBounds);
+        EditSelectionRectangle.Visibility = Visibility.Visible;
+        Canvas.SetLeft(EditSelectionRectangle, _coverStartPoint.X);
+        Canvas.SetTop(EditSelectionRectangle, _coverStartPoint.Y);
+        EditSelectionRectangle.Width = 0;
+        EditSelectionRectangle.Height = 0;
+        EditOverlayCanvas.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void EditOverlayCanvas_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_isSelectingCoverArea)
+        {
+            return;
+        }
+
+        var pageBounds = GetCurrentPageImageBoundsOnOverlay(EditOverlayCanvas);
+        if (pageBounds.IsEmpty)
+        {
+            return;
+        }
+
+        var currentPoint = ClampPointToRect(e.GetPosition(EditOverlayCanvas), pageBounds);
+        var left = Math.Min(_coverStartPoint.X, currentPoint.X);
+        var top = Math.Min(_coverStartPoint.Y, currentPoint.Y);
+        var width = Math.Abs(currentPoint.X - _coverStartPoint.X);
+        var height = Math.Abs(currentPoint.Y - _coverStartPoint.Y);
+
+        Canvas.SetLeft(EditSelectionRectangle, left);
+        Canvas.SetTop(EditSelectionRectangle, top);
+        EditSelectionRectangle.Width = width;
+        EditSelectionRectangle.Height = height;
+    }
+
+    private void EditOverlayCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isSelectingCoverArea)
+        {
+            return;
+        }
+
+        _isSelectingCoverArea = false;
+        EditOverlayCanvas.ReleaseMouseCapture();
+
+        if (EditSelectionRectangle.Width < 8 || EditSelectionRectangle.Height < 8)
+        {
+            EditSelectionRectangle.Visibility = Visibility.Collapsed;
+            e.Handled = true;
+            return;
+        }
+
+        var pageBounds = GetCurrentPageImageBoundsOnOverlay(EditOverlayCanvas);
+        if (pageBounds.IsEmpty)
+        {
+            EditSelectionRectangle.Visibility = Visibility.Collapsed;
+            e.Handled = true;
+            return;
+        }
+
+        var left = Canvas.GetLeft(EditSelectionRectangle);
+        var top = Canvas.GetTop(EditSelectionRectangle);
+        var right = left + EditSelectionRectangle.Width;
+        var bottom = top + EditSelectionRectangle.Height;
+        var area = new CropArea(
+            Math.Clamp((left - pageBounds.Left) / pageBounds.Width, 0, 1),
+            Math.Clamp((top - pageBounds.Top) / pageBounds.Height, 0, 1),
+            Math.Clamp((right - pageBounds.Left) / pageBounds.Width, 0, 1),
+            Math.Clamp((bottom - pageBounds.Top) / pageBounds.Height, 0, 1));
+
+        _coverPatches.Add(new CoverPatch(
+            _currentPreviewPage,
+            ApplyCoverAllPagesCheckBox.IsChecked == true,
+            area,
+            _coverColor,
+            CoverOpacitySlider.Value / 100.0));
+
+        EditSelectionRectangle.Visibility = Visibility.Collapsed;
+        RefreshCoverOverlayVisuals();
+        UpdateCoverAreasInfo();
+        StatusTextBlock.Text = "Đã thêm vùng bù màu. Có thể kéo thêm vùng khác hoặc lưu PDF.";
+        e.Handled = true;
+    }
+
+    private void ChooseCoverColorButton_Click(object sender, RoutedEventArgs e)
+    {
+        using var dialog = new WinForms.ColorDialog
+        {
+            FullOpen = true,
+            Color = System.Drawing.Color.FromArgb(_coverColor.R, _coverColor.G, _coverColor.B)
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        {
+            return;
+        }
+
+        SetCoverColor(WpfColor.FromRgb(dialog.Color.R, dialog.Color.G, dialog.Color.B));
+    }
+
+    private void PickCoverColorButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isPickingCoverColor = true;
+        StatusTextBlock.Text = "Bút lấy màu đang bật: bấm chuột trái lên nền trong preview để lấy màu.";
+    }
+
+    private void UndoCoverAreaButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_coverPatches.Count == 0)
+        {
+            StatusTextBlock.Text = "Chưa có vùng bù màu để hoàn tác.";
+            return;
+        }
+
+        _coverPatches.RemoveAt(_coverPatches.Count - 1);
+        RefreshCoverOverlayVisuals();
+        UpdateCoverAreasInfo();
+        StatusTextBlock.Text = "Đã hoàn tác vùng bù màu cuối.";
+    }
+
+    private void ClearCoverAreasButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClearCoverAreasVisual();
+        StatusTextBlock.Text = "Đã xóa tất cả vùng bù màu.";
+    }
+
+    private async void SaveEditedPdfButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ValidateInputAndOutput())
+        {
+            return;
+        }
+
+        if (_coverPatches.Count == 0)
+        {
+            WpfMessageBox.Show(this, "Vui lòng kéo ít nhất một vùng bù màu trên preview.", "Chưa có vùng bù màu", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_outputFolderPath!);
+            using var inputDocument = PdfReader.Open(GetActivePdfPath(), PdfDocumentOpenMode.Import);
+            var baseName = SanitizeFileName(Path.GetFileNameWithoutExtension(_inputFilePath!));
+            var outputFile = GetUniqueOutputPath(Path.Combine(_outputFolderPath!, $"{baseName}_bu_mau.pdf"));
+            SaveCoveredPdf(inputDocument, outputFile, _coverPatches);
+
+            var workingCopy = CreateWorkingPdfPath();
+            File.Copy(outputFile, workingCopy, overwrite: true);
+            SetWorkingPdf(workingCopy);
+            ClearCoverAreasVisual();
+            await ReloadActivePdfPreviewAsync(_currentPreviewPage);
+
+            StatusTextBlock.Text = $"Đã lưu PDF bù màu: {outputFile}";
+            WpfMessageBox.Show(this, "Đã lưu PDF đã bù màu.", "Hoàn tất", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Lưu PDF bù màu thất bại.";
+            WpfMessageBox.Show(this, ex.Message, "Lỗi bù màu", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void PrimaryActionButton_Click(object sender, RoutedEventArgs e)
     {
         if (IsMergeTabSelected())
         {
             MergePdfButton_Click(sender, e);
+            return;
+        }
+
+        if (IsEditTabSelected())
+        {
+            SaveEditedPdfButton_Click(sender, e);
             return;
         }
 
@@ -729,7 +927,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        PrimaryActionButton.Content = IsMergeTabSelected() ? "Gộp PDF" : "Tách PDF";
+        PrimaryActionButton.Content = IsMergeTabSelected()
+            ? "Gộp PDF"
+            : IsEditTabSelected()
+                ? "Lưu PDF đã bù màu"
+                : "Tách PDF";
     }
 
     private void UpdateTabWorkspaceState()
@@ -739,6 +941,7 @@ public partial class MainWindow : Window
             DocumentPickerPanel is null ||
             PdfPagesScrollViewer is null ||
             CropOverlayCanvas is null ||
+            EditOverlayCanvas is null ||
             StatusTextBlock is null)
         {
             return;
@@ -759,6 +962,7 @@ public partial class MainWindow : Window
         if (isMergeTab)
         {
             CropOverlayCanvas.Visibility = Visibility.Collapsed;
+            EditOverlayCanvas.Visibility = Visibility.Collapsed;
             _activeMergeItem = null;
             StatusTextBlock.Text = "Tab Gộp PDF đang hoạt động. Preview tách file đã tạm ẩn.";
         }
@@ -777,6 +981,11 @@ public partial class MainWindow : Window
     private bool IsMergeTabSelected()
     {
         return MainActionTabControl?.SelectedItem == MergeTabItem;
+    }
+
+    private bool IsEditTabSelected()
+    {
+        return MainActionTabControl?.SelectedItem == EditTabItem;
     }
 
     private async Task LoadPdfPreviewPagesAsync(string filePath)
@@ -1080,6 +1289,7 @@ public partial class MainWindow : Window
         }
 
         UpdateCurrentPageFromVisiblePreview();
+        RefreshCoverOverlayVisuals();
     }
 
     private void PdfPagesScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -1878,6 +2088,18 @@ public partial class MainWindow : Window
         outputDocument.Save(outputFile);
     }
 
+    private static void SaveCoveredPdf(PdfDocument inputDocument, string outputFile, IReadOnlyList<CoverPatch> coverPatches)
+    {
+        using var outputDocument = new PdfDocument();
+        for (var pageNumber = 1; pageNumber <= inputDocument.PageCount; pageNumber++)
+        {
+            var outputPage = outputDocument.AddPage(inputDocument.Pages[pageNumber - 1]);
+            ApplyCoverPatches(outputPage, pageNumber, coverPatches);
+        }
+
+        outputDocument.Save(outputFile);
+    }
+
     private static void ApplyCropIfNeeded(PdfPage page, int originalPageNumber, CropOptions? cropOptions)
     {
         if (cropOptions is null)
@@ -1911,12 +2133,43 @@ public partial class MainWindow : Window
         page.CropBox = new PdfRectangle(new XPoint(x1, y1), new XPoint(x2, y2));
     }
 
+    private static void ApplyCoverPatches(PdfPage page, int pageNumber, IReadOnlyList<CoverPatch> coverPatches)
+    {
+        var relevantPatches = coverPatches
+            .Where(patch => patch.ApplyAllPages || patch.PageNumber == pageNumber)
+            .ToList();
+        if (relevantPatches.Count == 0)
+        {
+            return;
+        }
+
+        using var gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
+        var pageWidth = page.Width.Point;
+        var pageHeight = page.Height.Point;
+
+        foreach (var patch in relevantPatches)
+        {
+            var opacity = Math.Clamp(patch.Opacity, 0, 1);
+            var color = opacity >= 0.995
+                ? XColor.FromArgb(patch.Color.R, patch.Color.G, patch.Color.B)
+                : XColor.FromArgb((int)Math.Round(opacity * 255), patch.Color.R, patch.Color.G, patch.Color.B);
+            var brush = new XSolidBrush(color);
+            var x = patch.Area.Left * pageWidth;
+            var y = patch.Area.Top * pageHeight;
+            var width = Math.Max(1, (patch.Area.Right - patch.Area.Left) * pageWidth);
+            var height = Math.Max(1, (patch.Area.Bottom - patch.Area.Top) * pageHeight);
+            gfx.DrawRectangle(brush, new XRect(x, y, width, height));
+        }
+    }
+
     private void SyncCurrentPageFields()
     {
         var pageText = _currentPreviewPage.ToString(CultureInfo.InvariantCulture);
         PreviewPageTextBox.Text = pageText;
         CropPageTextBox.Text = pageText;
         UpdatePreviewPageHeader();
+        RefreshCoverOverlayVisuals();
+        UpdateCoverAreasInfo();
     }
 
     private int ReadCurrentPreviewPage()
@@ -2041,6 +2294,8 @@ public partial class MainWindow : Window
         {
             PreviewZoomTextBlock.Text = $"{Math.Round(_previewZoom * 100)}%";
         }
+
+        RefreshCoverOverlayVisuals();
     }
 
     private void ApplyZoomForCurrentPreviewLayout()
@@ -2146,7 +2401,7 @@ public partial class MainWindow : Window
 
     private void UpdatePreviewInteractionLayers()
     {
-        if (CropOverlayCanvas is null || MainActionTabControl is null)
+        if (CropOverlayCanvas is null || EditOverlayCanvas is null || MainActionTabControl is null)
         {
             return;
         }
@@ -2155,6 +2410,13 @@ public partial class MainWindow : Window
                                        _previewLayoutMode != PreviewLayoutMode.TextSelection
             ? Visibility.Visible
             : Visibility.Collapsed;
+
+        EditOverlayCanvas.Visibility = MainActionTabControl.SelectedItem == EditTabItem &&
+                                       _previewLayoutMode != PreviewLayoutMode.TextSelection
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        RefreshCoverOverlayVisuals();
     }
 
     private void ClearCropSelectionVisual()
@@ -2164,6 +2426,192 @@ public partial class MainWindow : Window
         CropSelectionRectangle.Width = 0;
         CropSelectionRectangle.Height = 0;
         CropSelectionInfoTextBlock.Text = "Chưa chọn vùng";
+    }
+
+    private void ClearCoverAreasVisual()
+    {
+        _coverPatches.Clear();
+        EditSelectionRectangle.Visibility = Visibility.Collapsed;
+        EditSelectionRectangle.Width = 0;
+        EditSelectionRectangle.Height = 0;
+        RefreshCoverOverlayVisuals();
+        UpdateCoverAreasInfo();
+    }
+
+    private void RefreshCoverOverlayVisuals()
+    {
+        if (EditOverlayCanvas is null || EditSelectionRectangle is null)
+        {
+            return;
+        }
+
+        for (var i = EditOverlayCanvas.Children.Count - 1; i >= 0; i--)
+        {
+            if (EditOverlayCanvas.Children[i] is FrameworkElement { Tag: "CoverPatchVisual" })
+            {
+                EditOverlayCanvas.Children.RemoveAt(i);
+            }
+        }
+
+        if (MainActionTabControl?.SelectedItem != EditTabItem)
+        {
+            return;
+        }
+
+        var pageBounds = GetCurrentPageImageBoundsOnOverlay(EditOverlayCanvas);
+        if (pageBounds.IsEmpty)
+        {
+            return;
+        }
+
+        foreach (var patch in _coverPatches.Where(patch => patch.ApplyAllPages || patch.PageNumber == _currentPreviewPage))
+        {
+            var alpha = (byte)Math.Round(Math.Clamp(patch.Opacity, 0, 1.0) * 255);
+            var previewColor = WpfColor.FromArgb(alpha, patch.Color.R, patch.Color.G, patch.Color.B);
+            var rectangle = new System.Windows.Shapes.Rectangle
+            {
+                Tag = "CoverPatchVisual",
+                Fill = new SolidColorBrush(previewColor),
+                Stroke = new SolidColorBrush(patch.Color),
+                StrokeThickness = 1.5,
+                IsHitTestVisible = false,
+                Width = Math.Max(1, patch.Area.WidthPercent / 100.0 * pageBounds.Width),
+                Height = Math.Max(1, patch.Area.HeightPercent / 100.0 * pageBounds.Height)
+            };
+
+            Canvas.SetLeft(rectangle, pageBounds.Left + patch.Area.Left * pageBounds.Width);
+            Canvas.SetTop(rectangle, pageBounds.Top + patch.Area.Top * pageBounds.Height);
+            EditOverlayCanvas.Children.Insert(Math.Max(0, EditOverlayCanvas.Children.Count - 1), rectangle);
+        }
+    }
+
+    private void UpdateCoverAreasInfo()
+    {
+        if (CoverAreasInfoTextBlock is null)
+        {
+            return;
+        }
+
+        if (_coverPatches.Count == 0)
+        {
+            CoverAreasInfoTextBlock.Text = "Chưa có vùng bù màu";
+            return;
+        }
+
+        var allPagesCount = _coverPatches.Count(patch => patch.ApplyAllPages);
+        var currentPageCount = _coverPatches.Count(patch => !patch.ApplyAllPages && patch.PageNumber == _currentPreviewPage);
+        CoverAreasInfoTextBlock.Text = $"Tổng {_coverPatches.Count} vùng. Trang hiện tại: {currentPageCount}. Tất cả trang: {allPagesCount}.";
+    }
+
+    private Rect GetCurrentPageImageBoundsOnOverlay(Canvas overlayCanvas)
+    {
+        if (_currentPreviewPage < 1 ||
+            PdfPagesItemsControl.ItemContainerGenerator.ContainerFromIndex(_currentPreviewPage - 1) is not FrameworkElement container)
+        {
+            return Rect.Empty;
+        }
+
+        var image = FindVisualChild<System.Windows.Controls.Image>(container);
+        if (image is null || image.ActualWidth <= 0 || image.ActualHeight <= 0)
+        {
+            return Rect.Empty;
+        }
+
+        var topLeft = overlayCanvas.PointFromScreen(image.PointToScreen(new WpfPoint(0, 0)));
+        var bottomRight = overlayCanvas.PointFromScreen(image.PointToScreen(new WpfPoint(image.ActualWidth, image.ActualHeight)));
+        return new Rect(topLeft, bottomRight);
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent)
+        where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typedChild)
+            {
+                return typedChild;
+            }
+
+            var descendant = FindVisualChild<T>(child);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
+    private static WpfPoint ClampPointToRect(WpfPoint point, Rect rect)
+    {
+        return new WpfPoint(
+            Math.Clamp(point.X, rect.Left, rect.Right),
+            Math.Clamp(point.Y, rect.Top, rect.Bottom));
+    }
+
+    private void PickCoverColorAtMouse(MouseButtonEventArgs e)
+    {
+        var overlayPoint = e.GetPosition(EditOverlayCanvas);
+        if (TryPickRenderedPreviewColor(overlayPoint, out var pickedColor))
+        {
+            SetCoverColor(pickedColor);
+            _isPickingCoverColor = false;
+            StatusTextBlock.Text = $"Đã lấy màu nền: #{pickedColor.R:X2}{pickedColor.G:X2}{pickedColor.B:X2}.";
+            return;
+        }
+
+        var screenPoint = EditOverlayCanvas.PointToScreen(overlayPoint);
+        using var bitmap = new System.Drawing.Bitmap(1, 1);
+        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        {
+            graphics.CopyFromScreen((int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y), 0, 0, new System.Drawing.Size(1, 1));
+        }
+
+        var color = bitmap.GetPixel(0, 0);
+        SetCoverColor(WpfColor.FromRgb(color.R, color.G, color.B));
+        _isPickingCoverColor = false;
+        StatusTextBlock.Text = $"Đã lấy màu nền: #{color.R:X2}{color.G:X2}{color.B:X2}.";
+    }
+
+    private bool TryPickRenderedPreviewColor(WpfPoint overlayPoint, out WpfColor color)
+    {
+        color = default;
+
+        var pageBounds = GetCurrentPageImageBoundsOnOverlay(EditOverlayCanvas);
+        if (pageBounds.IsEmpty || !pageBounds.Contains(overlayPoint))
+        {
+            return false;
+        }
+
+        if (_currentPreviewPage < 1 ||
+            _currentPreviewPage > _pagePreviews.Count ||
+            _pagePreviews[_currentPreviewPage - 1].Image is not BitmapSource bitmapSource)
+        {
+            return false;
+        }
+
+        var xRatio = Math.Clamp((overlayPoint.X - pageBounds.Left) / pageBounds.Width, 0, 1);
+        var yRatio = Math.Clamp((overlayPoint.Y - pageBounds.Top) / pageBounds.Height, 0, 1);
+        var pixelX = Math.Clamp((int)Math.Round(xRatio * (bitmapSource.PixelWidth - 1)), 0, bitmapSource.PixelWidth - 1);
+        var pixelY = Math.Clamp((int)Math.Round(yRatio * (bitmapSource.PixelHeight - 1)), 0, bitmapSource.PixelHeight - 1);
+
+        BitmapSource source = bitmapSource.Format == PixelFormats.Bgra32 || bitmapSource.Format == PixelFormats.Pbgra32
+            ? bitmapSource
+            : new FormatConvertedBitmap(bitmapSource, PixelFormats.Bgra32, null, 0);
+
+        var pixels = new byte[4];
+        source.CopyPixels(new Int32Rect(pixelX, pixelY, 1, 1), pixels, 4, 0);
+        color = WpfColor.FromRgb(pixels[2], pixels[1], pixels[0]);
+        return true;
+    }
+
+    private void SetCoverColor(WpfColor color)
+    {
+        _coverColor = color;
+        var brush = new SolidColorBrush(color);
+        CoverColorPreviewBorder.Background = brush;
+        CoverColorTextBlock.Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
     }
 
     private static string SanitizeFileName(string fileName)
@@ -2391,3 +2839,10 @@ public readonly record struct CropArea(double Left, double Top, double Right, do
 }
 
 public sealed record CropOptions(bool ApplyAllPages, int? TargetPage, CropArea Area);
+
+public sealed record CoverPatch(
+    int PageNumber,
+    bool ApplyAllPages,
+    CropArea Area,
+    WpfColor Color,
+    double Opacity);
